@@ -1,0 +1,11 @@
+# dsh-plugin-gitrail — bundle patch
+#
+# One Host row plus one Client module. The Client module registers the
+# "gitrail" page type in the right sidebar; the Host row serves read-only
+# repository data over a loopback-only route under /dsh-plugin-gitrail.
+#
+# The row id and the package name are the same on purpose: the Client module
+# id must equal the package name, and the patch row is the package's entry.
+- insert:
+    - id: dsh-plugin-gitrail
+      name: dsh-plugin-gitrail

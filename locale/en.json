@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Gitrail",
+    "description": "A read-only rail of branches and commits for the session workspace, in the right sidebar."
+  }
+}
