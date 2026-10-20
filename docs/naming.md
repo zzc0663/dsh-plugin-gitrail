@@ -39,6 +39,6 @@
 ## 发布前检查
 
 - [ ] 在 npm 再次确认 `dsh-plugin-gitrail` 可用。
-- [ ] 移除 `package.json` 的 `private: true`，补 `repository` / `homepage` / `author`。
+- [ ] 移除 `package.json` 的 `private: true`，补 `author`（`repository` / `homepage` / `bugs` 已指向 GitHub）。
 - [ ] `npm pack --dry-run` 核对文件列表（`files` 不会过滤本地目录安装，但会过滤发布包）。
 - [ ] 确认没有与 `dsh-plugin-git` 混淆的描述或关键词堆砌。

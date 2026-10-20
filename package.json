@@ -4,6 +4,14 @@
   "description": "Rail for your repo — a read-only git branch and commit view in the DeepSeek Harness right sidebar.",
   "license": "MIT",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zzc0663/dsh-plugin-gitrail.git"
+  },
+  "homepage": "https://github.com/zzc0663/dsh-plugin-gitrail#readme",
+  "bugs": {
+    "url": "https://github.com/zzc0663/dsh-plugin-gitrail/issues"
+  },
   "type": "module",
   "main": "index.js",
   "exports": {
