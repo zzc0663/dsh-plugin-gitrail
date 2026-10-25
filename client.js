@@ -785,9 +785,134 @@ window.__ModuleLoader__.load({
         if (tip) noteLane(tip.name, tip.color, tip.remote)
       }
 
+      /* A branch tip can point at an ancestor of another selected tip (for
+       * example `main` behind `develop`). Commit topology alone then paints a
+       * single vertical lane. Give the newer branch its own rail and connect it
+       * to the older tip with a diagonal edge, which reads as "branch created
+       * here" instead of a straight line. */
+      const tipRows = []
+      for (const [sha, tips] of tipBySha) {
+        let row = rowOf.get(sha)
+        if (row === undefined) {
+          for (const [fullSha, index] of rowOf) {
+            if (fullSha.startsWith(sha)) {
+              row = index
+              break
+            }
+          }
+        }
+        if (row !== undefined) tipRows.push({ row, sha: list[row].sha, tips })
+      }
+      const tipRowSet = new Set(tipRows.map((tip) => tip.row))
+      const childMap = new Map()
+      for (const commit of list) {
+        for (const parent of commit.parents || []) {
+          const kids = childMap.get(parent) || []
+          kids.push(commit.sha)
+          childMap.set(parent, kids)
+        }
+      }
+      const ancestors = (startSha) => {
+        const seen = new Set()
+        const rows = new Set()
+        const stack = [startSha]
+        while (stack.length > 0) {
+          const sha = stack.pop()
+          if (!sha || seen.has(sha)) continue
+          seen.add(sha)
+          const row = rowOf.get(sha)
+          if (row !== undefined) rows.add(row)
+          const commit = row === undefined ? undefined : list[row]
+          for (const parent of (commit && commit.parents) || []) stack.push(parent)
+        }
+        return rows
+      }
+      let behindTip
+      for (const tip of tipRows) {
+        if (tip.row < 1) continue
+        for (const other of tipRows) {
+          if (other.row >= tip.row) continue
+          if (ancestors(other.sha).has(tip.row)) {
+            behindTip = tip
+            break
+          }
+        }
+        if (behindTip) break
+      }
+      if (behindTip) {
+        const behindNode = nodes.find((node) => node.row === behindTip.row)
+        const children = childMap.get(behindTip.sha) || []
+        if (behindNode && children.length === 1) {
+          const chain = []
+          let cursor = children[0]
+          let targetRow = null
+          while (cursor) {
+            const row = rowOf.get(cursor)
+            if (row === undefined) break
+            const commit = list[row]
+            if ((commit.parents || []).length > 1) {
+              chain.length = 0
+              break
+            }
+            chain.push(row)
+            if (tipRowSet.has(row) && row !== behindTip.row) {
+              targetRow = row
+              break
+            }
+            const kids = childMap.get(cursor) || []
+            if (kids.length !== 1) break
+            cursor = kids[0]
+          }
+          if (targetRow !== null && chain.length > 0) {
+            const oldLane = behindNode.lane
+            const oldX = xOf(oldLane)
+            const railLane = maxLane + 1
+            const railX = xOf(railLane)
+            const chainSet = new Set(chain)
+            const spanTop = Math.min(...chain) * rowHeight
+            const spanBottom = (Math.max(...chain) + 1) * rowHeight
+            const linear = chain.every((row) => {
+              const node = nodes.find((candidate) => candidate.row === row)
+              return node && node.lane === oldLane
+            })
+            if (linear) {
+              for (const node of nodes) {
+                if (chainSet.has(node.row)) {
+                  node.lane = railLane
+                  node.x = railX
+                }
+              }
+              for (const segment of segments) {
+                if (
+                  segment.x1 === oldX &&
+                  segment.x2 === oldX &&
+                  segment.y1 >= spanTop - 0.01 &&
+                  segment.y2 <= spanBottom + 0.01
+                ) {
+                  segment.x1 = railX
+                  segment.x2 = railX
+                }
+              }
+              for (const edge of edges) {
+                if (edge.x1 === oldX && edge.y1 >= spanTop - 0.01 && edge.y1 <= spanBottom + 0.01) {
+                  edge.x1 = railX
+                }
+                if (
+                  edge.x2 === oldX &&
+                  edge.y2 >= spanTop - 0.01 &&
+                  edge.y2 < spanBottom - 0.01
+                ) {
+                  edge.x2 = railX
+                }
+              }
+              maxLane = Math.max(maxLane, railLane)
+            }
+          }
+        }
+      }
+
       const laneCount = Math.max(1, maxLane + 1)
-      return {
-        rowHeight,
+      return {        rowHeight,
         width: pad * 2 + (laneCount - 1) * laneGap,
         height: list.length * rowHeight,
         laneCount,

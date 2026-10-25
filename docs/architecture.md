@@ -199,6 +199,7 @@ sidebar.panellist「Gitrail 图谱」
 - 提交范围默认「本地全部 + 远程全部」；`最近提交` 旁有两个多选 listbox（`aria-multiselectable`），分别选择 local / remote，两组并集渲染。远程分支列表默认展开；分支行点击切换本组选中态，空选择显示空态。
 - 客户端只发送 `session` + `scope=refs` + 重复 `local` / `remote`，不发送路径；Host 用 `for-each-ref` 结果做白名单，再拼 `git log` 参数。
 - **提交图**：`layoutGraph()` 是纯函数，输入 `commits[].parents` + `branches`，输出每行 lane/边/节点；渲染为一个绝对定位 SVG，提交行固定 64px，subject 最多两行。lane 颜色按分支名稳定哈希到 8 色板，合并来源边继承来源色；远程 lane 虚线。颜色是分类数据可视化的唯一例外，其余 UI 仍只用 `--dsw-alias-*`。
+- **分支 rail**：选中分支 tip 是另一选中 tip 的祖先时（`main` 落后 `develop`），较新分支的线性链整体移到新 lane，旧 tip 到链首的边保留为斜线，表达「分支在这里创建」。
 - **共享选中**：`apply()` 创建插件级 selection store（`{sessionId, sha}`），右侧栏与全宽页都通过 slot `inject` 读取；侧栏点击先 `selection.select()` 再 `layout.selectPanel('gitrail-graph')`。全宽页详情通过 `/commit` 拉取 message / 文件 / diff。
 
 ## 7. 文件地图

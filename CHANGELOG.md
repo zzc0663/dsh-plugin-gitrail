@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 semantic versioning.
 
+## [0.7.0] — 2026-10-25
+
+### Fixed
+
+- When a selected branch tip is an ancestor of another selected tip (this
+  repository: `main` behind `develop`), the newer branch now gets its own rail
+  and a diagonal "branch created here" edge connects it to the older tip. The
+  two branches are no longer painted as one straight lane.
+- The rail is skipped for merge-heavy chains; topology forks still use the
+  normal lane allocator.
+
 ## [0.6.0] — 2026-10-25
 
 ### Added

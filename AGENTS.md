@@ -16,7 +16,7 @@
 
 ```powershell
 npm run check   # node --check + 清单/本地化/图标
-npm test        # 44 项：解析器、路由、双组范围、图形、提交详情与临时仓库
+npm test        # 45 项：解析器、路由、双组范围、分支 rail、图形与提交详情
 ```
 
 - 视觉验证只能在安装后的 DSH 页面里做；不要写 mock 页面、截图脚本或自定义渲染器来「证明」UI。

@@ -217,6 +217,26 @@ test('local and remote branches share a branch color', () => {
   assert.notEqual(branchColorIndex('develop', false), branchColorIndex('main', false))
 })
 
+test('a newer branch gets its own rail when the older tip is an ancestor', () => {
+  const graph = layoutGraph(
+    [commit('c3', ['c2']), commit('c2', ['c1']), commit('c1', [])],
+    branches([
+      { name: 'develop', sha: 'c3', current: true },
+      { name: 'main', sha: 'c1' },
+    ]),
+  )
+
+  const develop = graph.nodes.find((node) => node.sha === 'c3')
+  const middle = graph.nodes.find((node) => node.sha === 'c2')
+  const main = graph.nodes.find((node) => node.sha === 'c1')
+
+  assert.equal(graph.laneCount, 2)
+  assert.equal(develop.lane, 1)
+  assert.equal(middle.lane, 1)
+  assert.equal(main.lane, 0)
+  assert.ok(graph.edges.some((edge) => edge.x1 !== edge.x2))
+})
+
 test('the selection store emits only on real changes', () => {
   const store = plugin.__createSelectionStore()
   let changes = 0
