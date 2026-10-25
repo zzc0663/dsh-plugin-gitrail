@@ -23,6 +23,8 @@
 - [x] **合并方向**：第一 parent 实线（迁入），第二及以后 parent 虚线（迁出）；能从 lane/ref 推断时显示 `main ← feature`。
 - [x] 图例、颜色稳定性和灰度可读；轨道使用插件自有分类色板（亮/暗都校验），其余 UI 仍用 `--dsw-alias-*`。
 - [x] **全宽 Gitrail Graph 主面板**：`sidebar.panellist` 入口 + root `main` 页面，左侧图谱、右侧提交信息；分支 tip 交接颜色/标签，行底色按 lane 色。
+- [ ] 分支列表色圈与 lane 色一致（本地/远程同名同色，远程虚线环）；提交标题 600 字重。详见 [plans/branch-colors-and-commit-details.md](plans/branch-colors-and-commit-details.md)。
+- [ ] 右侧栏点击提交 → 打开全宽页并选中；全宽页点击提交 → 右侧详情。
 - [ ] refs 装饰（分支 / tag / remote）与 lane 对齐，过长截断；固定行高保证 SVG 对齐。
 - [ ] 窗口重新聚焦 / tab 重新可见时静默刷新；保留手动刷新。
 - [ ] 长列表：虚拟化或分段加载（先测 500 条提交的渲染成本）。
@@ -33,16 +35,15 @@
 
 ## M2 — 提交详情与 diff 预览
 
-**目标**：从「看见提交」到「看见改动」，但不做完整编辑器。
+**目标**：让全宽页右侧从「只有 metadata」变成可读的提交详情；diff 分两步。
 
-- 方案 A：Gitrail 内部展开选中提交，Host 返回 `git show --stat` 与 patch 摘要。
-- 方案 B：新增 `gitrail-commit` tab type，通过 `ctx.sidebarRight.openTab(kind, { params })` 打开详情页。
-- [ ] 决定方案（倾向 B：可利用右侧栏分屏，且不挤压列表）。
-- [ ] Host：`GET /dsh-plugin-gitrail/commit?session=&sha=`，sha 必须匹配 `^[0-9a-f]{7,40}$`。
-- [ ] 限制 patch 大小（例如 512 KiB）并给出截断提示；二进制文件只显示 stat。
-- [ ] 文件行点击 → 复用 `dsh-resource://file/...` 打开现有文件预览，而不是自己渲染源码。
+- [x] 方案：**全宽页右侧「提交信息」**（不新增 tab，不挤压图谱列表）。
+- [ ] **D1**：Host `GET /commit?session=&sha=` 返回完整 message、作者/提交者、时间、parents、refs、`--numstat` 文件列表；SHA 校验与上限。
+- [ ] **D1**：右侧详情渲染 message、作者、时间、文件 `+/-`、binary/rename；加载/空态/截断。
+- [ ] **D2**：文件 diff 预览，限制 512 KiB；文件行点击复用 `dsh-resource://file/...` 打开现有预览，而不是自己渲染源码。
+- [ ] 决定「右侧栏点提交」：打开全宽页并选中（见 [plans/branch-colors-and-commit-details.md](plans/branch-colors-and-commit-details.md)）。
 
-**验收**：merge commit、重命名、二进制文件都有明确呈现；大 patch 不会卡死面板。
+**验收**：merge、rename、二进制文件都有明确呈现；大 patch 不会卡死面板；非法/不存在的 SHA 被拒绝。
 
 ---
 
