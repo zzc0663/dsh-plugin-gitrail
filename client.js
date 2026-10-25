@@ -391,9 +391,9 @@ window.__ModuleLoader__.load({
         if (lane === undefined) lane = firstFree(0)
         const expected = active[lane]
         const tip = pickTip(commit.sha)
-        const color = tip ? tip.color : expected ? expected.color : laneColor(commit.sha)
-        const remote = tip ? tip.remote : expected ? expected.remote : false
-        const label = tip ? tip.name : expected ? expected.label : undefined
+        const color = expected ? expected.color : tip ? tip.color : laneColor(commit.sha)
+        const remote = expected ? expected.remote : tip ? tip.remote : false
+        const label = expected ? expected.label : tip ? tip.name : undefined
 
         for (let index = 0; index < active.length; index += 1) {
           const state = active[index]
@@ -506,6 +506,7 @@ window.__ModuleLoader__.load({
           mergeSource: merge ? parentTargets[1] && parentTargets[1].label : undefined,
         })
         if (label) noteLane(label, color, remote)
+        if (tip) noteLane(tip.name, tip.color, tip.remote)
       }
 
       const laneCount = Math.max(1, maxLane + 1)
