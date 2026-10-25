@@ -948,6 +948,19 @@ window.__ModuleLoader__.load({
             h('code', { className: 'gr-sha' }, commit.short),
             h('span', { className: 'gr-author' }, commit.author),
             h('span', { className: 'gr-time' }, timeAgo(commit.date)),
+            node && node.merge
+              ? h(
+                  'span',
+                  { className: 'gr-op', style: { borderColor: laneStroke(node.color) }, title: operation },
+                  t('graph.merge'),
+                )
+              : node && node.fork
+                ? h(
+                    'span',
+                    { className: 'gr-op', style: { borderColor: laneStroke(node.color) }, title: operation },
+                    t('graph.fork'),
+                  )
+                : null,
             refs.length > 0
               ? h(
                   'span',
@@ -1818,6 +1831,15 @@ window.__ModuleLoader__.load({
 .gr-ref.is-tag {
   color: var(--dsw-alias-brand-primary);
   border-color: var(--dsw-alias-brand-primary);
+}
+.gr-op {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 3px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 9px;
+  line-height: 15px;
 }
 .gr-notice {
   border: 1px dashed var(--dsw-alias-border-l2);
