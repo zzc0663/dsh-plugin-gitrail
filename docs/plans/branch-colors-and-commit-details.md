@@ -1,6 +1,12 @@
 # 计划：分支色圈、加粗标题与提交详情
 
-状态：**已实现（0.5.0 D1+D2；0.6.0 双筛选；0.7.0 分支 rail；0.8.0 搜索/分页；0.9.0 按文件 diff）** · 日期：2026-10-25 · 目标版本：0.9.0
+状态：**已实现（0.5.0 D1+D2；0.6.0 双筛选；0.7.0 rail；0.8.0 搜索/分页；0.9.0 按文件 diff；1.0.0 对比/tag/多 rail）** · 日期：2026-10-25 · 目标版本：1.0.0
+
+## 1.0.0 补充：对比、tag、多 rail
+
+- 分支对比：Host `GET /compare` 返回 ahead/behind、两侧 SHA、numstat 与 bounded patch；页面顶部对比条和右侧按文件 diff。
+- tag tip：`refs/tags`（轻量/annotated，peel 到 commit）进入图谱 tip 和行内 pill。
+- 多个落后 tip：rail pass 遍历所有落后 tip，非重叠链各自分 lane，重叠跳过。
 
 ## 0.9.0 补充：按文件 diff
 

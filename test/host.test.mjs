@@ -216,6 +216,24 @@ test('GET /repo validates and applies the commit limit', async (t) => {
   assert.equal(tooLarge.body.code, 'request/bad-limit')
 })
 
+test('GET /compare returns ahead/behind and a branch diff', async (t) => {
+  const dir = await makeRepo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await commit(dir, 'base.txt', 'base\n', 'base')
+  git(['switch', '-c', 'feature'], dir)
+  await commit(dir, 'feature.txt', 'feature\n', 'feature work')
+  const route = harness({ live: { header: { cwd: dir } } })
+
+  const response = await request(route, {
+    url: `/dsh-plugin-gitrail/compare?session=${SESSION}&base=${encodeURIComponent('refs/heads/main')}&head=${encodeURIComponent('refs/heads/feature')}`,
+  })
+
+  assert.equal(response.status, 200)
+  assert.equal(response.body.ahead, 1)
+  assert.equal(response.body.behind, 0)
+  assert.ok(response.body.files.some((file) => file.path === 'feature.txt'))
+})
+
 test('GET /repo falls back to the session index for a non-live session', async (t) => {
   const dir = await makeRepo()
   t.after(() => rm(dir, { recursive: true, force: true }))

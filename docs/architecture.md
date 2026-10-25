@@ -171,6 +171,27 @@ sidebar.panellist「Gitrail 图谱」
 
 上限：message 16 KiB、文件 200 个、patch 512 KiB。二进制文件只给 stat；rename 带 `oldPath`。客户端详情面板展示 message、文件 `+/-` 与按行着色的 diff；文件行在 `sidebarRight.openResource` 可用时打开 `dsh-resource://file/...` 预览。
 
+### `GET /dsh-plugin-gitrail/compare?session=<id>&base=<ref>&head=<ref>`
+
+对比两个分支（base/head 必须是 `for-each-ref` 返回的 refname，或 `HEAD`）：
+
+```json
+{
+  "ok": true,
+  "base": "refs/heads/main",
+  "head": "refs/heads/develop",
+  "ahead": 27,
+  "behind": 0,
+  "aheadShas": ["…"],
+  "behindShas": [],
+  "files": [{ "path": "src/a.ts", "additions": 12, "deletions": 3, "binary": false }],
+  "patch": "diff --git …",
+  "patchTruncated": false
+}
+```
+
+`ahead` 是 head 独有、`behind` 是 base 独有的提交数；文件与 patch 使用 `git diff base...head`，上限 200 文件 / 512 KiB。两侧 SHA 各取 200 条。
+
 ## 4. Session → 工作区
 
 优先级：
@@ -204,6 +225,7 @@ sidebar.panellist「Gitrail 图谱」
 - **共享选中**：`apply()` 创建插件级 selection store（`{sessionId, sha}`），右侧栏与全宽页都通过 slot `inject` 读取；侧栏点击先 `selection.select()` 再 `layout.selectPanel('gitrail-graph')`。全宽页详情通过 `/commit` 拉取 message / 文件 / diff。
 - **视图状态**：另一个插件级 view store 按 session 保存本地/远程筛选（`localStorage`，最多 20 个 session）；两个视图通过 `useSyncExternalStore` 共享。搜索为本地状态，搜索时请求 500 条并隐藏图谱，使用平铺列表。
 - **Diff 视图**：客户端把 patch 按 `diff --git` 分节并映射到 `files`；文件行只切换当前节，不依赖 `sidebarRight`。外部 `↗` 仍走 `dsh-resource://file/...`；SHA 支持复制。
+- **对比与 tag**：`/compare` 驱动标题栏 base/head 对比条和右侧按文件 diff；`refs/tags` 进入 `branches.tags`，tag tip 与行内 tag pill 由 `layoutGraph` 输出。多落后 tip 的 rail 遍历所有非重叠线性链。
 - **刷新**：窗口 focus / `visibilitychange` 触发 800ms 防抖的静默刷新；行高固定 64px，并用 `content-visibility: auto` 降低长列表渲染成本。
 
 ## 7. 文件地图

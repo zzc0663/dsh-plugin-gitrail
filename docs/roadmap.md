@@ -7,7 +7,7 @@
 - [x] 只读 git 适配器：分支、当前分支、dirty、ahead/behind、最近 80 条提交
 - [x] Client：`gitrail` tab type + guide entry + `sidebar.right.pane.tab` body
 - [x] 错误态、空仓库、detached HEAD、刷新
-- [x] `npm run check`、49 项 `npm test`
+- [x] `npm run check`、53 项 `npm test`
 
 **已完成**：desktop profile 本机 preview 安装与暗色视觉验证；亮色主题、窄栏待检查。
 
@@ -31,6 +31,9 @@
 - [x] **筛选同步与记忆**：插件级 view store，按 session 持久化本地/远程筛选；分支菜单支持搜索。
 - [x] **自动刷新**：窗口 focus / tab visible 时 800ms 防抖刷新。
 - [x] **按文件 diff 与复制 SHA**：patch 按 `diff --git` 分节，文件行选中只看该文件；SHA 复制按钮。
+- [x] **分支对比**：base/head 选择、ahead/behind、numstat 文件与 bounded patch。
+- [x] **tag 作为图 tip**：轻量/annotated tag peel 到 commit，图上行内 tag pill。
+- [x] **多落后分支 rail**：遍历所有落后 tip，非重叠线性链各自分配 lane。
 - [ ] refs 装饰（分支 / tag / remote）与 lane 对齐，过长截断；固定行高保证 SVG 对齐。
 - [ ] 窗口重新聚焦 / tab 重新可见时静默刷新；保留手动刷新。
 - [ ] 长列表：虚拟化或分段加载（先测 500 条提交的渲染成本）。

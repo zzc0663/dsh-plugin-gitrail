@@ -13,7 +13,7 @@
  * @module dsh-plugin-gitrail
  */
 
-import { GitError, readCommitDetail, readRepoState } from './lib/git.js'
+import { GitError, readCommitDetail, readCompare, readRepoState } from './lib/git.js'
 
 export const name = 'dsh-plugin-gitrail'
 
@@ -171,7 +171,8 @@ export function apply(ctx) {
             const url = new URL(req.url ?? '/', 'http://localhost')
             const isRepo = url.pathname === `${BASE}/repo`
             const isCommit = url.pathname === `${BASE}/commit`
-            if (!isRepo && !isCommit) {
+            const isCompare = url.pathname === `${BASE}/compare`
+            if (!isRepo && !isCommit && !isCompare) {
               sendJson(res, 404, { ok: false, code: 'http/not-found', message: 'unknown route' })
               return
             }
@@ -210,6 +211,18 @@ export function apply(ctx) {
               }
               const detail = await readCommitDetail(session.cwd, sha)
               sendJson(res, 200, { ok: true, ...detail })
+              return
+            }
+
+            if (isCompare) {
+              const base = (url.searchParams.get('base') ?? '').trim()
+              const head = (url.searchParams.get('head') ?? '').trim()
+              if (!base || !head) {
+                sendJson(res, 400, { ok: false, code: 'request/bad-ref', message: 'base and head are required' })
+                return
+              }
+              const compare = await readCompare(session.cwd, base, head)
+              sendJson(res, 200, { ok: true, ...compare })
               return
             }
 

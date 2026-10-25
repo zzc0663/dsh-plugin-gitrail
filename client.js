@@ -21,6 +21,7 @@ window.__ModuleLoader__.load({
     const NS = 'gitrail'
     const ENDPOINT = '/dsh-plugin-gitrail/repo'
     const ENDPOINT_COMMIT = '/dsh-plugin-gitrail/commit'
+    const ENDPOINT_COMPARE = '/dsh-plugin-gitrail/compare'
 
     /* ================= copy ================= */
 
@@ -88,6 +89,14 @@ window.__ModuleLoader__.load({
       'page.openFile': '在侧栏打开文件',
       'action.copySha': '复制',
       'action.copied': '已复制',
+      'action.compare': '对比分支',
+      'compare.title': '对比',
+      'compare.ahead': 'head 领先 base',
+      'compare.behind': 'head 落后 base',
+      'compare.swap': '交换 base / head',
+      'compare.close': '关闭对比',
+      'compare.loading': '正在计算分支差异…',
+      'compare.empty': '两个分支没有文件差异。',
       'page.loadingDetail': '正在读取提交详情…',
       'error.commitNotFound': '提交不存在或已被移除。',
       'action.openPanel': '全宽打开图谱',
@@ -172,6 +181,14 @@ window.__ModuleLoader__.load({
       'page.openFile': 'Open file in sidebar',
       'action.copySha': 'Copy',
       'action.copied': 'Copied',
+      'action.compare': 'Compare branches',
+      'compare.title': 'Compare',
+      'compare.ahead': 'head ahead of base',
+      'compare.behind': 'head behind base',
+      'compare.swap': 'Swap base / head',
+      'compare.close': 'Close compare',
+      'compare.loading': 'Computing branch diff…',
+      'compare.empty': 'No file differences between these branches.',
       'page.loadingDetail': 'Reading commit…',
       'error.commitNotFound': 'This commit no longer exists.',
       'action.openPanel': 'Open full graph',
@@ -509,6 +526,55 @@ window.__ModuleLoader__.load({
       return sections
     }
 
+    function useCompare(sessionId, base, head, enabled) {
+      const [state, setState] = React.useState({ status: 'idle', data: null, error: null })
+      React.useEffect(() => {
+        if (!enabled || !sessionId || !base || !head) {
+          setState({ status: 'idle', data: null, error: null })
+          return undefined
+        }
+        const controller = new AbortController()
+        let alive = true
+        setState((previous) => ({ status: 'loading', data: previous.data, error: null }))
+        fetch(
+          `${ENDPOINT_COMPARE}?session=${encodeURIComponent(sessionId)}&base=${encodeURIComponent(base)}&head=${encodeURIComponent(head)}`,
+          {
+            signal: controller.signal,
+            headers: { accept: 'application/json' },
+            cache: 'no-store',
+            credentials: 'same-origin',
+          },
+        )
+          .then(async (response) => {
+            let body = null
+            try {
+              body = await response.json()
+            } catch {
+              body = null
+            }
+            if (!response.ok || body === null || body.ok !== true) {
+              const error = new Error((body && body.message) || `HTTP ${response.status}`)
+              error.code = (body && body.code) || `http/${response.status}`
+              throw error
+            }
+            if (alive) setState({ status: 'ready', data: body, error: null })
+          })
+          .catch((error) => {
+            if (!alive || (error && error.name === 'AbortError')) return
+            setState({
+              status: 'error',
+              data: null,
+              error: { code: (error && error.code) || 'network/failed', message: (error && error.message) || '' },
+            })
+          })
+        return () => {
+          alive = false
+          controller.abort()
+        }
+      }, [sessionId, base, head, enabled])
+      return state
+    }
+
     function commitMatches(commit, query) {
       const needle = String(query || '').trim().toLowerCase()
       if (needle === '') return true
@@ -835,27 +901,38 @@ window.__ModuleLoader__.load({
       const list = Array.isArray(commits) ? commits : []
       const locals = branches && Array.isArray(branches.locals) ? branches.locals : []
       const remotes = branches && Array.isArray(branches.remotes) ? branches.remotes : []
+      const tags = branches && Array.isArray(branches.tags) ? branches.tags : []
 
       const tipBySha = new Map()
-      const addTip = (branch, remote) => {
+      const tagBySha = new Map()
+      const addTip = (branch, remote, tag = false) => {
         if (!branch || typeof branch.sha !== 'string' || branch.sha === '') return
         const name = branch.name || branch.refname || branch.sha
         const tip = {
           name,
           refname: branch.refname || '',
           remote,
+          tag,
           current: Boolean(branch.current),
           color: laneColor(remote ? remoteColorKey(name) : name),
         }
         const tips = tipBySha.get(branch.sha) || []
         tips.push(tip)
         tipBySha.set(branch.sha, tips)
+        if (tag) {
+          const list = tagBySha.get(branch.sha) || []
+          list.push(tip)
+          tagBySha.set(branch.sha, list)
+        }
       }
       locals.forEach((branch) => addTip(branch, false))
       remotes.forEach((branch) => addTip(branch, true))
+      tags.forEach((tag) => addTip(tag, false, true))
       const pickTip = (sha) => {
         const choose = (tips) =>
-          tips.find((tip) => tip.current) || tips.find((tip) => !tip.remote) || tips[0]
+          tips.find((tip) => tip.current) ||
+          tips.find((tip) => !tip.remote && !tip.tag) ||
+          tips[0]
         const exact = tipBySha.get(sha)
         if (exact && exact.length > 0) return choose(exact)
         for (const [short, tips] of tipBySha) {
@@ -915,7 +992,9 @@ window.__ModuleLoader__.load({
         const color = handoff || !expected ? (tip ? tip.color : laneColor(commit.sha)) : expected.color
         const remote = handoff || !expected ? (tip ? tip.remote : false) : expected.remote
         const label = handoff || !expected ? (tip ? tip.name : undefined) : expected.label
-        const nodeTip = tip ? { name: tip.name, color: tip.color, remote: tip.remote } : undefined
+        const nodeTip = tip
+          ? { name: tip.name, color: tip.color, remote: tip.remote, tag: Boolean(tip.tag) }
+          : undefined
 
         for (let index = 0; index < active.length; index += 1) {
           const state = active[index]
@@ -1022,6 +1101,10 @@ window.__ModuleLoader__.load({
           remote,
           label,
           tip: nodeTip,
+          tagTips: (tagBySha.get(commit.sha) || []).map((tag) => ({
+            name: tag.name,
+            color: tag.color,
+          })),
           merge,
           fork: (children.get(commit.sha) || 0) > 1,
           head: (commit.refs || []).some((ref) => ref.startsWith('HEAD')),
@@ -1074,19 +1157,20 @@ window.__ModuleLoader__.load({
         }
         return rows
       }
-      let behindTip
+      const behindTips = []
       for (const tip of tipRows) {
         if (tip.row < 1) continue
+        if (tip.tips.every((candidate) => candidate.tag)) continue
         for (const other of tipRows) {
           if (other.row >= tip.row) continue
           if (ancestors(other.sha).has(tip.row)) {
-            behindTip = tip
+            if (!behindTips.some((candidate) => candidate.row === tip.row)) behindTips.push(tip)
             break
           }
         }
-        if (behindTip) break
       }
-      if (behindTip) {
+      const usedRailRows = new Set()
+      for (const behindTip of behindTips) {
         const behindNode = nodes.find((node) => node.row === behindTip.row)
         const children = childMap.get(behindTip.sha) || []
         if (behindNode && children.length === 1) {
@@ -1097,7 +1181,7 @@ window.__ModuleLoader__.load({
             const row = rowOf.get(cursor)
             if (row === undefined) break
             const commit = list[row]
-            if ((commit.parents || []).length > 1) {
+            if ((commit.parents || []).length > 1 || usedRailRows.has(row)) {
               chain.length = 0
               break
             }
@@ -1152,6 +1236,7 @@ window.__ModuleLoader__.load({
                   edge.x2 = railX
                 }
               }
+              for (const row of chain) usedRailRows.add(row)
               maxLane = Math.max(maxLane, railLane)
             }
           }
@@ -1865,9 +1950,29 @@ window.__ModuleLoader__.load({
             node && node.tip
               ? h(
                   'span',
-                  { className: 'gr-tip', style: { borderColor: laneStroke(node.tip.color), color: laneStroke(node.tip.color) } },
+                  {
+                    className: `gr-tip${node.tip.tag ? ' is-tag' : ''}`,
+                    style: { borderColor: laneStroke(node.tip.color), color: laneStroke(node.tip.color) },
+                  },
                   node.tip.name,
                 )
+              : null,
+            node && Array.isArray(node.tagTips)
+              ? node.tagTips
+                  .filter((tag) => !node.tip || tag.name !== node.tip.name)
+                  .slice(0, 3)
+                  .map((tag) =>
+                    h(
+                      'span',
+                      {
+                        key: `tag:${tag.name}`,
+                        className: 'gr-tip is-tag',
+                        title: `tag: ${tag.name}`,
+                        style: { borderColor: laneStroke(tag.color), color: laneStroke(tag.color) },
+                      },
+                      tag.name,
+                    ),
+                  )
               : null,
             h('div', { className: 'gr-subject' }, subject),
           ),
@@ -2267,6 +2372,121 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function CompareDetail(props) {
+      const compare = props.compare
+      const t = props.t
+      if (props.error) {
+        return h('div', { className: 'gr-detail-empty' }, errorText(t, props.error))
+      }
+      if (!compare) return h('div', { className: 'gr-detail-empty' }, t('compare.loading'))
+      const files = Array.isArray(compare.files) ? compare.files : []
+      const sections = parsePatch(compare.patch, files)
+      const additions = files.reduce((sum, file) => sum + file.additions, 0)
+      const deletions = files.reduce((sum, file) => sum + file.deletions, 0)
+      return h(
+        'div',
+        { className: 'gr-compare-detail' },
+        h(
+          'div',
+          { className: 'gr-compare-title' },
+          h('span', { className: 'gr-compare-base', title: compare.base }, compare.baseShort),
+          h('span', { className: 'gr-compare-arrow' }, '…'),
+          h('span', { className: 'gr-compare-head', title: compare.head }, compare.headShort),
+        ),
+        h(
+          'div',
+          { className: 'gr-compare-counts' },
+          h('span', { className: 'gr-compare-badge is-ahead', title: t('compare.ahead') }, `↑${compare.ahead}`),
+          h('span', { className: 'gr-compare-badge is-behind', title: t('compare.behind') }, `↓${compare.behind}`),
+          h('span', { className: 'gr-compare-files' }, `${files.length} · +${additions} −${deletions}`),
+        ),
+        files.length > 0
+          ? h(
+              'div',
+              { className: 'gr-detail-section' },
+              h('div', { className: 'gr-detail-section-head' }, t('page.files')),
+              h(
+                'div',
+                { className: 'gr-file-list' },
+                files.map((file) =>
+                  h(FileRow, {
+                    key: `${file.oldPath || ''}:${file.path}`,
+                    file,
+                    t,
+                    selected: file.path === props.selectedFile,
+                    onSelect: () => props.onSelectFile(file.path === props.selectedFile ? null : file.path),
+                    onOpen:
+                      props.openFile && typeof props.openFile === 'function'
+                        ? () =>
+                            props.openFile(
+                              fileAddressFor(props.sessionId, props.workspace, props.root, file.path),
+                            )
+                        : undefined,
+                  }),
+                ),
+              ),
+            )
+          : h('div', { className: 'gr-detail-empty' }, t('compare.empty')),
+        compare.filesTruncated
+          ? h('div', { className: 'gr-detail-note' }, t('page.filesTruncated'))
+          : null,
+        h(DiffView, {
+          patch: compare.patch,
+          sections,
+          selected: props.selectedFile,
+          onClear: () => props.onSelectFile(null),
+          truncated: compare.patchTruncated,
+          unavailable: compare.patchUnavailable,
+          t,
+        }),
+      )
+    }
+
+    function CompareBar(props) {
+      const t = props.t
+      const repo = props.repo
+      const locals = repo && repo.branches && Array.isArray(repo.branches.locals) ? repo.branches.locals : []
+      const remotes = repo && repo.branches && Array.isArray(repo.branches.remotes) ? repo.branches.remotes : []
+      const options = [...locals, ...remotes]
+      const summary = props.compare
+        ? `↑${props.compare.ahead} ↓${props.compare.behind}`
+        : props.loading
+          ? '…'
+          : ''
+      const select = (value, onChange) =>
+        h(
+          'select',
+          { className: 'gr-compare-select', value, onChange: (event) => onChange(event.target.value) },
+          options.map((branch) =>
+            h('option', { key: branch.refname, value: branch.refname }, branch.name),
+          ),
+        )
+      return h(
+        'div',
+        { className: 'gr-compare-bar' },
+        h('span', { className: 'gr-compare-label' }, t('compare.title')),
+        select(props.base, props.onBase),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'gr-compare-swap',
+            onClick: props.onSwap,
+            title: t('compare.swap'),
+            'aria-label': t('compare.swap'),
+          },
+          '⇄',
+        ),
+        select(props.head, props.onHead),
+        h('span', { className: 'gr-compare-summary' }, summary),
+        h(
+          'button',
+          { type: 'button', className: 'gr-compare-close', onClick: props.onClose, title: t('compare.close') },
+          '×',
+        ),
+      )
+    }
+
     function GitrailPage(props) {
       const t = typeof props.t === 'function' ? props.t : (key) => key
       const sessions = props.sessions
@@ -2294,6 +2514,10 @@ window.__ModuleLoader__.load({
       const [nonce, setNonce] = React.useState(0)
       const [selectedSha, setSelectedSha] = React.useState(null)
       const [selectedFile, setSelectedFile] = React.useState(null)
+      const [compareOpen, setCompareOpen] = React.useState(false)
+      const [compareBase, setCompareBase] = React.useState('')
+      const [compareHead, setCompareHead] = React.useState('')
+      const [compareFile, setCompareFile] = React.useState(null)
       const [copied, setCopied] = React.useState(false)
       const [notice, setNotice] = React.useState(null)
       const [limit, setLimit] = React.useState(80)
@@ -2321,6 +2545,7 @@ window.__ModuleLoader__.load({
       const state = useRepo(sessionId, filter, nonce, search.trim() ? 500 : limit)
       const repo = state.data
       const loading = state.status === 'loading'
+      const compareState = useCompare(sessionId, compareBase, compareHead, compareOpen)
       const localRefs = branchRefs(repo, false)
       const remoteRefs = branchRefs(repo, true)
       const selectedLocals = selectedFilterRefs(filter, repo, false)
@@ -2334,6 +2559,42 @@ window.__ModuleLoader__.load({
             : { locals: next, remotes: filter ? filter.remotes : remoteRefs },
         )
       }
+      const openCompare = () => {
+        const localBranches = repo && repo.branches && Array.isArray(repo.branches.locals) ? repo.branches.locals : []
+        const remoteBranches =
+          repo && repo.branches && Array.isArray(repo.branches.remotes) ? repo.branches.remotes : []
+        const current = localBranches.find((branch) => branch.current) || localBranches[0] || remoteBranches[0]
+        const currentRef = current?.refname || ''
+        const differentLocal = localBranches.find(
+          (branch) => branch.refname !== currentRef && branch.sha !== (current && current.sha),
+        )
+        const differentRemote = remoteBranches.find(
+          (branch) => branch.refname !== currentRef && branch.sha !== (current && current.sha),
+        )
+        const upstream = repo && repo.upstream
+          ? remoteBranches.find(
+              (branch) => branch.name === repo.upstream || branch.name.endsWith(`/${repo.upstream}`),
+            )
+          : null
+        const base = differentLocal?.refname ||
+          differentRemote?.refname ||
+          upstream?.refname ||
+          currentRef
+        const head = currentRef || base
+        if (!base || !head) return
+        setSearch('')
+        setCompareFile(null)
+        setCompareBase(base)
+        setCompareHead(head)
+        setCompareOpen(true)
+      }
+      const closeCompare = () => {
+        setCompareOpen(false)
+        setCompareFile(null)
+      }
+      React.useEffect(() => {
+        setCompareFile(null)
+      }, [compareBase, compareHead])
       const detailState = useCommitDetail(sessionId, selectedSha)
       const detail = detailState.data
       const detailCommit = detail && detail.commit ? detail.commit : null
@@ -2362,6 +2623,10 @@ window.__ModuleLoader__.load({
         if (!viewStore) setFallbackFilter(null)
         setLimit(80)
         setSearch('')
+        setCompareOpen(false)
+        setCompareBase('')
+        setCompareHead('')
+        setCompareFile(null)
         setSelectedSha(null)
         setNotice(null)
       }, [sessionId, viewStore])
@@ -2577,6 +2842,19 @@ window.__ModuleLoader__.load({
                 'button',
                 {
                   type: 'button',
+                  className: `gr-refresh gr-compare-toggle${compareOpen ? ' is-active' : ''}`,
+                  onClick: compareOpen ? closeCompare : openCompare,
+                  disabled: loading || !sessionId,
+                  title: t('action.compare'),
+                  'aria-label': t('action.compare'),
+                  'aria-pressed': compareOpen ? 'true' : undefined,
+                },
+                '⇄',
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
                   className: `gr-refresh${loading ? ' is-busy' : ''}`,
                   onClick: refresh,
                   disabled: loading || !sessionId,
@@ -2587,6 +2865,23 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
+          compareOpen
+            ? h(CompareBar, {
+                t,
+                repo,
+                base: compareBase,
+                head: compareHead,
+                compare: compareState.data,
+                loading: compareState.status === 'loading',
+                onBase: setCompareBase,
+                onHead: setCompareHead,
+                onSwap: () => {
+                  setCompareBase(compareHead)
+                  setCompareHead(compareBase)
+                },
+                onClose: closeCompare,
+              })
+            : null,
           h(
             'div',
             { className: 'gr-page-body' },
@@ -2594,8 +2889,21 @@ window.__ModuleLoader__.load({
             h(
               'aside',
               { className: 'gr-page-detail' },
-              h('div', { className: 'gr-detail-head' }, t('page.detail')),
-              shownCommit
+              compareOpen
+                ? h(CompareDetail, {
+                    t,
+                    compare: compareState.data,
+                    error: compareState.error,
+                    selectedFile: compareFile,
+                    onSelectFile: setCompareFile,
+                    openFile,
+                    sessionId,
+                    workspace,
+                    root: repo.root,
+                  })
+                : [
+                    h('div', { className: 'gr-detail-head' }, t('page.detail')),
+                    shownCommit
                 ? [
                     h('h2', { className: 'gr-detail-subject', key: 'subject' }, shownCommit.subject || t('commit.noSubject')),
                     operation ? h('div', { className: 'gr-detail-op', key: 'op' }, operation) : null,
@@ -2730,6 +3038,7 @@ window.__ModuleLoader__.load({
                       : null,
                   ]
                 : h('div', { className: 'gr-detail-empty' }, t('page.selectCommit')),
+                  ]
             ),
           ),
         )
@@ -3410,6 +3719,10 @@ window.__ModuleLoader__.load({
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.gr-tip.is-tag {
+  border-style: dashed;
+  border-radius: 4px;
+}
 .gr-subject {
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -3622,6 +3935,100 @@ window.__ModuleLoader__.load({
   align-items: center;
   gap: 10px;
   flex: none;
+}
+.gr-compare-toggle {
+  font-size: 13px;
+}
+.gr-compare-toggle.is-active {
+  color: var(--dsw-alias-brand-primary);
+  border-color: var(--dsw-alias-brand-primary);
+}
+.gr-compare-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 24px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+.gr-compare-label {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.gr-compare-select {
+  max-width: 190px;
+  padding: 2px 6px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 5px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 10px;
+}
+.gr-compare-swap,
+.gr-compare-close {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.gr-compare-summary {
+  margin-left: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.gr-compare-close {
+  margin-left: auto;
+  font-size: 16px;
+}
+.gr-compare-detail {
+  min-width: 0;
+}
+.gr-compare-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.gr-compare-arrow {
+  color: var(--dsw-alias-label-secondary);
+}
+.gr-compare-counts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 11px;
+}
+.gr-compare-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  border-radius: 4px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.gr-compare-badge.is-ahead {
+  color: var(--dsw-alias-state-success-primary);
+}
+.gr-compare-badge.is-behind {
+  color: var(--dsw-alias-state-error-primary);
+}
+.gr-compare-files {
+  color: var(--dsw-alias-label-secondary);
+}
+@media (max-width: 900px) {
+  .gr-compare-bar {
+    padding: 6px 14px;
+  }
 }
 .gr-page-tools .gr-search {
   flex: none;

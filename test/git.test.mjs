@@ -10,7 +10,9 @@ import {
   parseNumstat,
   parseRefs,
   parseStatus,
+  parseTags,
   readCommitDetail,
+  readCompare,
   readRepoState,
 } from '../lib/git.js'
 import { commit, git, makePlainDir, makeRepo } from '../test-support/git.mjs'
@@ -260,6 +262,51 @@ test('readRepoState counts working-tree changes and lists extra branches', async
   )
 })
 
+test('readRepoState exposes lightweight and annotated tags at their commit', async (t) => {
+  const dir = await makeRepo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await commit(dir, 'a.txt', 'a\n', 'first')
+  const sha = git(['rev-parse', 'HEAD'], dir)
+  git(['tag', 'v1'], dir)
+  git(['tag', '-a', 'v2', '-m', 'release two'], dir)
+
+  const state = await readRepoState(dir)
+  const tags = state.branches.tags
+  assert.deepEqual(tags.map((tag) => tag.name).sort(), ['v1', 'v2'])
+  assert.ok(tags.every((tag) => tag.sha === sha))
+  assert.equal(tags.find((tag) => tag.name === 'v2').annotated, true)
+})
+
+test('parseTags keeps commit tags and skips other tag targets', () => {
+  const fields = [
+    'refs/tags/v1',
+    'v1',
+    'a'.repeat(40),
+    '',
+    'commit',
+    '',
+    '',
+    '2026-10-25T12:00:00+08:00',
+    'first',
+  ].join('\u0000')
+  const blob = [
+    'refs/tags/blob',
+    'blob',
+    'b'.repeat(40),
+    '',
+    'blob',
+    '',
+    '',
+    '',
+    'blob tag',
+  ].join('\u0000')
+
+  const tags = parseTags(`${fields}\n${blob}`)
+  assert.equal(tags.length, 1)
+  assert.equal(tags[0].name, 'v1')
+  assert.equal(tags[0].annotated, false)
+})
+
 test('readRepoState rejects a directory that is not a repository', async (t) => {
   const dir = await makePlainDir()
   t.after(() => rm(dir, { recursive: true, force: true }))
@@ -341,6 +388,26 @@ test('readCommitDetail reports renames and binary files', async (t) => {
   assert.equal(binary.binary, true)
   assert.equal(binary.additions, 0)
   assert.equal(binary.deletions, 0)
+})
+
+test('readCompare reports ahead/behind and a branch diff', async (t) => {
+  const dir = await makeRepo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await commit(dir, 'base.txt', 'base\n', 'base')
+  git(['switch', '-c', 'feature'], dir)
+  await commit(dir, 'feature.txt', 'feature\n', 'feature work')
+
+  const forward = await readCompare(dir, 'refs/heads/main', 'refs/heads/feature')
+  assert.equal(forward.ahead, 1)
+  assert.equal(forward.behind, 0)
+  assert.equal(forward.aheadShas.length, 1)
+  assert.ok(forward.files.some((file) => file.path === 'feature.txt'))
+  assert.match(forward.patch, /\+feature/)
+
+  const reverse = await readCompare(dir, 'refs/heads/feature', 'refs/heads/main')
+  assert.equal(reverse.ahead, 0)
+  assert.equal(reverse.behind, 1)
+  assert.equal(reverse.behindShas.length, 1)
 })
 
 test('readCommitDetail rejects malformed and missing commits', async (t) => {

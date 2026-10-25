@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 semantic versioning.
 
+## [1.0.0] — 2026-10-25
+
+### Added
+
+- **Branch compare**: `GET /dsh-plugin-gitrail/compare?session=&base=&head=`
+  returns ahead/behind counts, the two SHA sets, a bounded `--numstat` file list
+  and patch. The full page has a compare bar with base/head selects, swap, and a
+  compare detail panel with per-file diff.
+- **Tags as graph tips**: `for-each-ref refs/tags` is parsed (lightweight and
+  annotated, peeled to commit) and surfaced as tag pills / tag-only tips.
+- **Multiple behind-branch rails**: the rail pass now walks every behind tip and
+  applies non-overlapping linear chains to separate lanes.
+
 ## [0.9.0] — 2026-10-25
 
 ### Added
