@@ -164,6 +164,61 @@ test('readRepoState can scope to a remote-tracking branch', async (t) => {
   assert.equal(state.commits[0].subject, 'first')
 })
 
+test('readRepoState combines selected local and remote refs', async (t) => {
+  const dir = await makeRepo()
+  const remote = await makePlainDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  t.after(() => rm(remote, { recursive: true, force: true }))
+  git(['init', '--bare', '-b', 'main'], remote)
+  await commit(dir, 'a.txt', 'a\n', 'main work')
+  git(['remote', 'add', 'origin', remote], dir)
+  git(['push', '-u', 'origin', 'main'], dir)
+  git(['fetch', 'origin'], dir)
+  git(['switch', '-c', 'feature'], dir)
+  await commit(dir, 'b.txt', 'b\n', 'feature work')
+
+  const state = await readRepoState(dir, {
+    locals: ['refs/heads/main', 'refs/heads/feature'],
+    remotes: ['refs/remotes/origin/main'],
+  })
+
+  assert.equal(state.selection.scope, 'refs')
+  assert.deepEqual(state.selection.locals, ['refs/heads/main', 'refs/heads/feature'])
+  assert.deepEqual(state.selection.remotes, ['refs/remotes/origin/main'])
+  assert.deepEqual(
+    state.commits.map((commit) => commit.subject).sort(),
+    ['feature work', 'main work'],
+  )
+})
+
+test('readRepoState allows an explicit empty ref selection', async (t) => {
+  const dir = await makeRepo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await commit(dir, 'a.txt', 'a\n', 'first')
+
+  const state = await readRepoState(dir, { locals: [], remotes: [] })
+  assert.equal(state.selection.scope, 'refs')
+  assert.deepEqual(state.commits, [])
+  assert.deepEqual(state.selection.remotes, [])
+})
+
+test('readRepoState rejects refs from the wrong local/remote group', async (t) => {
+  const dir = await makeRepo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await commit(dir, 'a.txt', 'a\n', 'first')
+
+  await assert.rejects(readRepoState(dir, { locals: ['refs/remotes/origin/main'], remotes: [] }), (error) => {
+    assert.ok(error instanceof GitError)
+    assert.equal(error.code, 'git/unknown-ref')
+    return true
+  })
+  await assert.rejects(readRepoState(dir, { locals: [], remotes: ['refs/heads/main'] }), (error) => {
+    assert.ok(error instanceof GitError)
+    assert.equal(error.code, 'git/unknown-ref')
+    return true
+  })
+})
+
 test('readRepoState reports an unborn repository', async (t) => {
   const dir = await makeRepo()
   t.after(() => rm(dir, { recursive: true, force: true }))

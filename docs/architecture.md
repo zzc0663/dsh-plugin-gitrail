@@ -50,14 +50,16 @@ sidebar.panellist「Gitrail 图谱」
 
 ## 3. HTTP 契约
 
-### `GET /dsh-plugin-gitrail/repo?session=<id>[&scope=all|branch][&ref=<refname>]`
+### `GET /dsh-plugin-gitrail/repo?session=<id>[&scope=all|branch|refs][&ref=<refname>][&local=<refname>&remote=<refname>…]`
 
 只允许 loopback 的 `Host`；只允许 GET。`session` 必须匹配 `^[A-Za-z0-9._:-]{1,200}$`。
 
 - `scope` 缺省为 `all`（所有本地 + 远程跟踪分支）。
 - `scope=branch` 时 `ref` 缺省为 `HEAD`；只接受 `HEAD` 或仓库中实际存在的完整 refname（`refs/heads/…`、`refs/remotes/…`）。
+- `scope=refs` 使用重复的 `local=` / `remote=` 参数；两组取并集，允许其中一组或两组为空。每个 ref 必须属于对应组（local 只能 `refs/heads/*`，remote 只能 `refs/remotes/*`），最多 100 个。
 - 同时提供 `ref` 但省略 `scope` 时按 `branch` 处理；`scope=all` 时忽略 `ref`。
-- 单分支日志为 `git log <ref> --`；所有分支为 `git log --branches --remotes`，两者都带 `--topo-order`。
+- 单分支日志为 `git log <ref> --`；所有分支为 `git log --branches --remotes`；显式 refs 为 `git log <local…> <remote…> --`，都带 `--topo-order`。
+- 空 refs（`scope=refs` 且没有 local/remote）不运行 `git log`，直接返回空提交列表。
 
 成功（200）：
 
@@ -194,8 +196,8 @@ sidebar.panellist「Gitrail 图谱」
 - 不向 `document.body` 追加节点；不读取其他插件的 DOM。
 - 文案走 `ctx.locale`（`gitrail` 命名空间），相对时间用 `Intl.RelativeTimeFormat`。
 - 刷新按钮有 `aria-label`、`title`，忙碌时 `aria-busy`；尊重 `prefers-reduced-motion`。
-- 提交范围默认「所有分支」；下拉是 `role="listbox"`，支持方向键 / Home / End / Enter / Escape，分支行同时可点选（`role="button"` + `aria-current`）。
-- 客户端只发送 `scope` / `ref`，不发送路径；Host 用 `for-each-ref` 结果做白名单，再拼 `git log` 参数。
+- 提交范围默认「本地全部 + 远程全部」；`最近提交` 旁有两个多选 listbox（`aria-multiselectable`），分别选择 local / remote，两组并集渲染。远程分支列表默认展开；分支行点击切换本组选中态，空选择显示空态。
+- 客户端只发送 `session` + `scope=refs` + 重复 `local` / `remote`，不发送路径；Host 用 `for-each-ref` 结果做白名单，再拼 `git log` 参数。
 - **提交图**：`layoutGraph()` 是纯函数，输入 `commits[].parents` + `branches`，输出每行 lane/边/节点；渲染为一个绝对定位 SVG，提交行固定 64px，subject 最多两行。lane 颜色按分支名稳定哈希到 8 色板，合并来源边继承来源色；远程 lane 虚线。颜色是分类数据可视化的唯一例外，其余 UI 仍只用 `--dsw-alias-*`。
 - **共享选中**：`apply()` 创建插件级 selection store（`{sessionId, sha}`），右侧栏与全宽页都通过 slot `inject` 读取；侧栏点击先 `selection.select()` 再 `layout.selectPanel('gitrail-graph')`。全宽页详情通过 `/commit` 拉取 message / 文件 / diff。
 

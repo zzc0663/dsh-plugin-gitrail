@@ -203,11 +203,19 @@ export function apply(ctx) {
             }
 
             const rawScope = url.searchParams.get('scope')
+            if (rawScope === 'refs') {
+              const locals = url.searchParams.getAll('local')
+              const remotes = url.searchParams.getAll('remote')
+              const repo = await readRepoState(session.cwd, { locals, remotes })
+              sendJson(res, 200, { ok: true, repo })
+              return
+            }
+
             const rawRef = url.searchParams.get('ref')
             const hasRef = rawRef !== null && rawRef.trim() !== ''
             const scope = rawScope === null || rawScope === '' ? (hasRef ? 'branch' : 'all') : rawScope
             if (scope !== 'all' && scope !== 'branch') {
-              sendJson(res, 400, { ok: false, code: 'request/bad-scope', message: 'scope must be "all" or "branch"' })
+              sendJson(res, 400, { ok: false, code: 'request/bad-scope', message: 'scope must be "all", "branch" or "refs"' })
               return
             }
 

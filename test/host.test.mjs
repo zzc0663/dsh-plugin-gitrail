@@ -171,6 +171,29 @@ test('GET /commit returns message, files and patch validation', async (t) => {
   assert.equal(missing.body.code, 'git/commit-not-found')
 })
 
+test('GET /repo accepts explicit local and remote ref selections', async (t) => {
+  const dir = await makeRepo()
+  const remote = await makePlainDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  t.after(() => rm(remote, { recursive: true, force: true }))
+  git(['init', '--bare', '-b', 'main'], remote)
+  await commit(dir, 'a.txt', 'a\n', 'first')
+  git(['remote', 'add', 'origin', remote], dir)
+  git(['push', '-u', 'origin', 'main'], dir)
+  git(['fetch', 'origin'], dir)
+  const route = harness({ live: { header: { cwd: dir } } })
+
+  const response = await request(route, {
+    url: `/dsh-plugin-gitrail/repo?session=${SESSION}&scope=refs&local=${encodeURIComponent('refs/heads/main')}&remote=${encodeURIComponent('refs/remotes/origin/main')}`,
+  })
+
+  assert.equal(response.status, 200)
+  assert.equal(response.body.repo.selection.scope, 'refs')
+  assert.deepEqual(response.body.repo.selection.locals, ['refs/heads/main'])
+  assert.deepEqual(response.body.repo.selection.remotes, ['refs/remotes/origin/main'])
+  assert.equal(response.body.repo.commits[0].subject, 'first')
+})
+
 test('GET /repo falls back to the session index for a non-live session', async (t) => {
   const dir = await makeRepo()
   t.after(() => rm(dir, { recursive: true, force: true }))

@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 semantic versioning.
 
+## [0.6.0] — 2026-10-25
+
+### Added
+
+- Remote branches are expanded by default in the sidebar branch list.
+- Two independent multi-select filters above the commit list: **Local** and
+  **Remote**. Selecting branches in either group combines their commits; both
+  groups can be all/partial/none, and an empty pair shows the empty state.
+- Host `scope=refs` accepts repeated `local=` / `remote=` refnames, validates
+  each against its group, and runs one bounded `git log` over the union. The
+  legacy `scope=all|branch` contract remains.
+- Branch rows now toggle membership in their local/remote group, matching the
+  two dropdowns; the two triggers show `n/total` or All.
+
+### Fixed
+
+- Menu keyboard scrolling no longer scrolls the whole page horizontally; long
+  option lists scroll inside the menu.
+- The right-hand menu is right-aligned so it stays inside the panel.
+
 ## [0.5.0] — 2026-10-25
 
 ### Added

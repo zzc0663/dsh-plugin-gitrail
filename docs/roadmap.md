@@ -7,7 +7,7 @@
 - [x] 只读 git 适配器：分支、当前分支、dirty、ahead/behind、最近 80 条提交
 - [x] Client：`gitrail` tab type + guide entry + `sidebar.right.pane.tab` body
 - [x] 错误态、空仓库、detached HEAD、刷新
-- [x] `npm run check`、40 项 `npm test`
+- [x] `npm run check`、44 项 `npm test`
 
 **已完成**：desktop profile 本机 preview 安装与暗色视觉验证；亮色主题、窄栏待检查。
 
@@ -25,6 +25,7 @@
 - [x] **全宽 Gitrail Graph 主面板**：`sidebar.panellist` 入口 + root `main` 页面，左侧图谱、右侧提交信息；分支 tip 交接颜色/标签，行底色按 lane 色。
 - [x] 分支列表色圈与 lane 色一致（本地/远程同名同色，远程虚线环）；提交标题 600 字重。详见 [plans/branch-colors-and-commit-details.md](plans/branch-colors-and-commit-details.md)。
 - [x] 右侧栏点击提交 → 打开全宽页并选中；全宽页点击提交 → 右侧详情。
+- [x] **本地 / 远程双多选筛选**：两个下拉独立组合，远程分支默认展开，分支行点选同步；Host 支持 `scope=refs` + 重复 ref 参数。
 - [ ] refs 装饰（分支 / tag / remote）与 lane 对齐，过长截断；固定行高保证 SVG 对齐。
 - [ ] 窗口重新聚焦 / tab 重新可见时静默刷新；保留手动刷新。
 - [ ] 长列表：虚拟化或分段加载（先测 500 条提交的渲染成本）。

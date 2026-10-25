@@ -49,6 +49,10 @@ window.__ModuleLoader__.load({
       'scope.missing': '该分支已不存在，已切换到所有分支。',
       'scope.emptyAll': '所有分支还没有提交',
       'scope.emptyBranch': '该分支还没有提交',
+      'filter.local': '本地',
+      'filter.remote': '远程',
+      'filter.all': '全部',
+      'filter.empty': '未选择任何分支',
       'legend.title': '颜色 = 分支',
       'graph.merge': '合并',
       'graph.fork': '分叉点',
@@ -116,6 +120,10 @@ window.__ModuleLoader__.load({
       'scope.missing': 'That branch no longer exists. Showing all branches.',
       'scope.emptyAll': 'No commits on any branch',
       'scope.emptyBranch': 'No commits on this branch',
+      'filter.local': 'Local',
+      'filter.remote': 'Remote',
+      'filter.all': 'All',
+      'filter.empty': 'No branches selected',
       'legend.title': 'Color = branch',
       'graph.merge': 'Merge',
       'graph.fork': 'Branch point',
@@ -221,7 +229,7 @@ window.__ModuleLoader__.load({
 
     /* ================= data ================= */
 
-    function useRepo(sessionId, scope, nonce) {
+    function useRepo(sessionId, filter, nonce) {
       const [state, setState] = React.useState({ status: 'idle', data: null, error: null, sessionId: null })
 
       React.useEffect(() => {
@@ -240,11 +248,10 @@ window.__ModuleLoader__.load({
         }))
 
         const params = new URLSearchParams({ session: sessionId })
-        if (scope && scope.kind === 'all') {
-          params.set('scope', 'all')
-        } else {
-          params.set('scope', 'branch')
-          params.set('ref', (scope && scope.ref) || 'HEAD')
+        if (filter) {
+          params.set('scope', 'refs')
+          for (const ref of filter.locals) params.append('local', ref)
+          for (const ref of filter.remotes) params.append('remote', ref)
         }
 
         fetch(`${ENDPOINT}?${params.toString()}`, {
@@ -281,7 +288,7 @@ window.__ModuleLoader__.load({
           alive = false
           controller.abort()
         }
-      }, [sessionId, scope && scope.kind, scope && scope.ref, nonce])
+      }, [sessionId, filter, nonce])
 
       return state
     }
@@ -315,6 +322,35 @@ window.__ModuleLoader__.load({
 
     function branchColorIndex(name, remote) {
       return laneColor(remote ? remoteColorKey(name) : name)
+    }
+
+    function branchRefs(repo, remote) {
+      if (!repo || !repo.branches) return []
+      const list = remote ? repo.branches.remotes : repo.branches.locals
+      return Array.isArray(list) ? list.map((branch) => branch.refname).filter(Boolean) : []
+    }
+
+    function selectedFilterRefs(filter, repo, remote) {
+      if (!filter) return branchRefs(repo, remote)
+      return remote ? filter.remotes : filter.locals
+    }
+
+    function toggleFilterItem(filter, repo, remote, refname) {
+      const all = branchRefs(repo, remote)
+      const selected = filter ? selectedFilterRefs(filter, repo, remote) : all
+      const next = selected.includes(refname) ? selected.filter((ref) => ref !== refname) : [...selected, refname]
+      return remote
+        ? { locals: filter ? filter.locals : branchRefs(repo, false), remotes: next }
+        : { locals: next, remotes: filter ? filter.remotes : branchRefs(repo, true) }
+    }
+
+    function toggleFilterAll(filter, repo, remote) {
+      const all = branchRefs(repo, remote)
+      const selected = filter ? selectedFilterRefs(filter, repo, remote) : all
+      const next = selected.length === all.length ? [] : all
+      return remote
+        ? { locals: filter ? filter.locals : branchRefs(repo, false), remotes: next }
+        : { locals: next, remotes: filter ? filter.remotes : branchRefs(repo, true) }
     }
 
     function fileAddressFor(sessionId, cwd, root, file) {
@@ -989,7 +1025,12 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (!open) return
         const element = optionRefs.current[active]
-        if (element && typeof element.scrollIntoView === 'function') element.scrollIntoView({ block: 'nearest' })
+        const menu = listRef.current
+        if (!element || !menu) return
+        const top = element.offsetTop
+        const bottom = top + element.offsetHeight
+        if (top < menu.scrollTop) menu.scrollTop = top
+        else if (bottom > menu.scrollTop + menu.clientHeight) menu.scrollTop = bottom - menu.clientHeight
       }, [open, active])
 
       const onKeyDown = (event) => {
@@ -1113,6 +1154,178 @@ window.__ModuleLoader__.load({
     }
 
     /* ================= view ================= */
+
+    let multiMenuSeq = 0
+
+    function BranchMultiMenu(props) {
+      const t = props.t
+      const label = props.label
+      const branches = Array.isArray(props.branches) ? props.branches : []
+      const selected = Array.isArray(props.selected) ? props.selected : []
+      const remote = Boolean(props.remote)
+      const [open, setOpen] = React.useState(false)
+      const [active, setActive] = React.useState(0)
+      const wrapRef = React.useRef(null)
+      const listRef = React.useRef(null)
+      const triggerRef = React.useRef(null)
+      const optionRefs = React.useRef([])
+      const listId = React.useMemo(() => `gr-multi-${++multiMenuSeq}`, [])
+      const refs = branches.map((branch) => branch.refname).filter(Boolean)
+      const selectedSet = new Set(selected)
+      const allSelected = refs.length > 0 && refs.every((ref) => selectedSet.has(ref))
+      const options = [
+        { key: '__all__', label: t('filter.all'), all: true },
+        ...branches.map((branch) => ({ key: branch.refname, label: branch.name, all: false })),
+      ]
+
+      const close = (focusTrigger) => {
+        setOpen(false)
+        if (focusTrigger && triggerRef.current !== null) triggerRef.current.focus()
+      }
+
+      const toggle = (option) => {
+        if (option.all) {
+          props.onChange(allSelected ? [] : refs)
+          return
+        }
+        const next = selectedSet.has(option.key)
+          ? selected.filter((ref) => ref !== option.key)
+          : [...selected, option.key]
+        props.onChange(next)
+      }
+
+      React.useEffect(() => {
+        if (!open) return undefined
+        const onDocumentMouseDown = (event) => {
+          if (wrapRef.current !== null && !wrapRef.current.contains(event.target)) close(false)
+        }
+        document.addEventListener('mousedown', onDocumentMouseDown)
+        setActive(0)
+        const raf = requestAnimationFrame(() => {
+          if (listRef.current !== null) listRef.current.focus()
+        })
+        return () => {
+          document.removeEventListener('mousedown', onDocumentMouseDown)
+          cancelAnimationFrame(raf)
+        }
+      }, [open])
+
+      React.useEffect(() => {
+        if (!open) return
+        const element = optionRefs.current[active]
+        const menu = listRef.current
+        if (!element || !menu) return
+        const top = element.offsetTop
+        const bottom = top + element.offsetHeight
+        if (top < menu.scrollTop) menu.scrollTop = top
+        else if (bottom > menu.scrollTop + menu.clientHeight) menu.scrollTop = bottom - menu.clientHeight
+      }, [open, active])
+
+      const onKeyDown = (event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          close(true)
+          return
+        }
+        if (event.key === 'Tab') {
+          setOpen(false)
+          return
+        }
+        if (event.key === 'ArrowDown') {
+          event.preventDefault()
+          setActive((value) => (value + 1) % options.length)
+          return
+        }
+        if (event.key === 'ArrowUp') {
+          event.preventDefault()
+          setActive((value) => (value - 1 + options.length) % options.length)
+          return
+        }
+        if (event.key === 'Home') {
+          event.preventDefault()
+          setActive(0)
+          return
+        }
+        if (event.key === 'End') {
+          event.preventDefault()
+          setActive(options.length - 1)
+          return
+        }
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          toggle(options[active])
+        }
+      }
+
+      const rows = options.map((option, index) => {
+        const checked = option.all ? allSelected : selectedSet.has(option.key)
+        return h(
+          'div',
+          {
+            key: option.key,
+            id: `${listId}-${index}`,
+            ref: (element) => {
+              optionRefs.current[index] = element
+            },
+            role: 'option',
+            'aria-selected': checked,
+            className: `gr-scope-option${index === active ? ' is-active' : ''}${checked ? ' is-selected' : ''}`,
+            onMouseEnter: () => setActive(index),
+            onClick: () => toggle(option),
+          },
+          h('span', { className: 'gr-scope-option-label' }, option.label),
+          checked ? h('span', { className: 'gr-scope-check', 'aria-hidden': true }, '✓') : null,
+        )
+      })
+
+      const triggerLabel = allSelected ? t('filter.all') : `${selected.length}/${refs.length}`
+
+      return h(
+        'div',
+        { className: 'gr-scope-wrap', ref: wrapRef },
+        h(
+          'button',
+          {
+            type: 'button',
+            ref: triggerRef,
+            className: 'gr-scope-trigger',
+            disabled: refs.length === 0,
+            'aria-haspopup': 'listbox',
+            'aria-expanded': open,
+            'aria-controls': open ? listId : undefined,
+            'aria-label': `${label}: ${triggerLabel}`,
+            title: `${label}: ${triggerLabel}`,
+            onClick: () => setOpen((value) => !value),
+            onKeyDown: (event) => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault()
+                setOpen(true)
+              }
+            },
+          },
+          h('span', { className: 'gr-scope-trigger-label' }, `${label} ${triggerLabel}`),
+          h('span', { className: 'gr-scope-caret', 'aria-hidden': true, style: open ? { transform: 'rotate(180deg)' } : undefined }),
+        ),
+        open
+          ? h(
+              'div',
+              {
+                className: 'gr-scope-menu',
+                role: 'listbox',
+                'aria-multiselectable': 'true',
+                id: listId,
+                tabIndex: -1,
+                ref: listRef,
+                'aria-label': label,
+                'aria-activedescendant': `${listId}-${active}`,
+                onKeyDown,
+              },
+              rows,
+            )
+          : null,
+      )
+    }
 
     function BranchRow(props) {
       const branch = props.branch
@@ -1296,9 +1509,10 @@ window.__ModuleLoader__.load({
       }
 
       const [nonce, setNonce] = React.useState(0)
-      const [scope, setScope] = React.useState({ kind: 'all' })
+      const [filter, setFilter] = React.useState(null)
+      const [remotesOpen, setRemotesOpen] = React.useState(true)
       const [notice, setNotice] = React.useState(null)
-      const state = useRepo(sessionId, scope, nonce)
+      const state = useRepo(sessionId, filter, nonce)
       const repo = state.data
       const loading = state.status === 'loading'
       const graph = React.useMemo(() => {
@@ -1315,7 +1529,7 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (sessionRef.current === sessionId) return
         sessionRef.current = sessionId
-        setScope({ kind: 'all' })
+        setFilter(null)
         setNotice(null)
       }, [sessionId])
 
@@ -1323,13 +1537,12 @@ window.__ModuleLoader__.load({
         if (!state.error) return
         if (
           (state.error.code === 'git/unknown-ref' || state.error.code === 'request/bad-ref') &&
-          scope.kind === 'branch' &&
-          scope.ref !== 'HEAD'
+          filter !== null
         ) {
           setNotice(t('scope.missing'))
-          setScope({ kind: 'all' })
+          setFilter(null)
         }
-      }, [state.error, scope.kind, scope.ref])
+      }, [state.error, filter])
 
       React.useEffect(() => {
         if (state.status === 'ready' && notice !== null) setNotice(null)
@@ -1351,15 +1564,27 @@ window.__ModuleLoader__.load({
       } else if (repo) {
         const locals = repo.branches && Array.isArray(repo.branches.locals) ? repo.branches.locals : []
         const remotes = repo.branches && Array.isArray(repo.branches.remotes) ? repo.branches.remotes : []
+        const localRefs = branchRefs(repo, false)
+        const remoteRefs = branchRefs(repo, true)
+        const selectedLocals = selectedFilterRefs(filter, repo, false)
+        const selectedRemotes = selectedFilterRefs(filter, repo, true)
         const commits = Array.isArray(repo.commits) ? repo.commits : []
-        const selectedRef = scope.kind === 'branch' ? scope.ref : null
-        const isBranchSelected = (branch) =>
-          selectedRef !== null && (selectedRef === branch.refname || (selectedRef === 'HEAD' && branch.current))
-        const selectBranch = (branch) => {
+        const isLocalSelected = (branch) => filter !== null && selectedLocals.includes(branch.refname)
+        const isRemoteSelected = (branch) => filter !== null && selectedRemotes.includes(branch.refname)
+        const toggleBranch = (remote, branch) => {
           if (!branch || !branch.refname) return
           setNotice(null)
-          setScope({ kind: 'branch', ref: branch.refname })
+          setFilter(toggleFilterItem(filter, repo, remote, branch.refname))
         }
+        const setGroup = (remote, next) => {
+          setNotice(null)
+          setFilter(
+            remote
+              ? { locals: filter ? filter.locals : localRefs, remotes: next }
+              : { locals: next, remotes: filter ? filter.remotes : remoteRefs },
+          )
+        }
+        const filterEmpty = filter !== null && selectedLocals.length === 0 && selectedRemotes.length === 0
 
         content = [
           notice !== null
@@ -1402,15 +1627,19 @@ window.__ModuleLoader__.load({
                       branch,
                       t,
                       remote: false,
-                      selected: isBranchSelected(branch),
-                      onSelect: selectBranch,
+                      selected: isLocalSelected(branch),
+                      onSelect: (selectedBranch) => toggleBranch(false, selectedBranch),
                     }),
                   ),
                 ),
             remotes.length > 0
               ? h(
                   'details',
-                  { className: 'gr-remotes' },
+                  {
+                    className: 'gr-remotes',
+                    open: remotesOpen,
+                    onToggle: (event) => setRemotesOpen(event.currentTarget.open),
+                  },
                   h(
                     'summary',
                     null,
@@ -1426,8 +1655,8 @@ window.__ModuleLoader__.load({
                         branch,
                         t,
                         remote: true,
-                        selected: isBranchSelected(branch),
-                        onSelect: selectBranch,
+                        selected: isRemoteSelected(branch),
+                        onSelect: (selectedBranch) => toggleBranch(true, selectedBranch),
                       }),
                     ),
                   ),
@@ -1445,14 +1674,21 @@ window.__ModuleLoader__.load({
                 'div',
                 { className: 'gr-commits-title' },
                 h('span', null, t('section.commits')),
-                h(ScopeMenu, {
+                h(BranchMultiMenu, {
                   t,
-                  repo,
-                  scope,
-                  onChange: (next) => {
-                    setNotice(null)
-                    setScope(next)
-                  },
+                  label: t('filter.local'),
+                  branches: locals,
+                  selected: selectedLocals,
+                  remote: false,
+                  onChange: (next) => setGroup(false, next),
+                }),
+                h(BranchMultiMenu, {
+                  t,
+                  label: t('filter.remote'),
+                  branches: remotes,
+                  selected: selectedRemotes,
+                  remote: true,
+                  onChange: (next) => setGroup(true, next),
                 }),
               ),
               h('span', { className: 'gr-count' }, String(commits.length)),
@@ -1462,9 +1698,9 @@ window.__ModuleLoader__.load({
               ? h(Notice, {
                   title: repo.unborn
                     ? t('state.unborn')
-                    : scope.kind === 'all'
-                      ? t('scope.emptyAll')
-                      : t('scope.emptyBranch'),
+                    : filterEmpty
+                      ? t('filter.empty')
+                      : t('scope.emptyAll'),
                   hint: repo.unborn ? t('state.unbornHint') : undefined,
                 })
               : h(
@@ -1584,7 +1820,7 @@ window.__ModuleLoader__.load({
       const sessionId =
         ids.find((id) => (byId[id] && byId[id].retainedBy && byId[id].retainedBy.mainView) > 0) || ids[0]
 
-      const [scope, setScope] = React.useState({ kind: 'all' })
+      const [filter, setFilter] = React.useState(null)
       const [nonce, setNonce] = React.useState(0)
       const [selectedSha, setSelectedSha] = React.useState(null)
       const [notice, setNotice] = React.useState(null)
@@ -1593,9 +1829,22 @@ window.__ModuleLoader__.load({
         () => (selection ? selection.getSnapshot() : null),
         () => null,
       )
-      const state = useRepo(sessionId, scope, nonce)
+      const state = useRepo(sessionId, filter, nonce)
       const repo = state.data
       const loading = state.status === 'loading'
+      const localRefs = branchRefs(repo, false)
+      const remoteRefs = branchRefs(repo, true)
+      const selectedLocals = selectedFilterRefs(filter, repo, false)
+      const selectedRemotes = selectedFilterRefs(filter, repo, true)
+      const filterEmpty = filter !== null && selectedLocals.length === 0 && selectedRemotes.length === 0
+      const setGroup = (remote, next) => {
+        setNotice(null)
+        setFilter(
+          remote
+            ? { locals: filter ? filter.locals : localRefs, remotes: next }
+            : { locals: next, remotes: filter ? filter.remotes : remoteRefs },
+        )
+      }
       const detailState = useCommitDetail(sessionId, selectedSha)
       const detail = detailState.data
       const detailCommit = detail && detail.commit ? detail.commit : null
@@ -1616,7 +1865,7 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (sessionRef.current === sessionId) return
         sessionRef.current = sessionId
-        setScope({ kind: 'all' })
+        setFilter(null)
         setSelectedSha(null)
         setNotice(null)
       }, [sessionId])
@@ -1642,15 +1891,11 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (!state.error) return
         const code = state.error.code
-        if (
-          (code === 'git/unknown-ref' || code === 'request/bad-ref') &&
-          scope.kind === 'branch' &&
-          scope.ref !== 'HEAD'
-        ) {
+        if ((code === 'git/unknown-ref' || code === 'request/bad-ref') && filter !== null) {
           setNotice(t('scope.missing'))
-          setScope({ kind: 'all' })
+          setFilter(null)
         }
-      }, [state.error, scope.kind, scope.ref])
+      }, [state.error, filter])
 
       const branchLabel = repo ? (repo.detached ? t('meta.detached') : repo.branch || t('meta.detached')) : t('panel.label')
 
@@ -1699,7 +1944,7 @@ window.__ModuleLoader__.load({
           commits.length === 0
             ? h(Notice, {
                 key: 'empty',
-                title: repo.unborn ? t('state.unborn') : scope.kind === 'all' ? t('scope.emptyAll') : t('scope.emptyBranch'),
+                title: repo.unborn ? t('state.unborn') : filterEmpty ? t('filter.empty') : t('scope.emptyAll'),
                 hint: repo.unborn ? t('state.unbornHint') : undefined,
               })
             : h(
@@ -1759,14 +2004,21 @@ window.__ModuleLoader__.load({
               repo.changes > 0
                 ? h('span', { className: 'gr-badge is-warn' }, `${repo.changes} ${t('meta.changes')}`)
                 : null,
-              h(ScopeMenu, {
+              h(BranchMultiMenu, {
                 t,
-                repo,
-                scope,
-                onChange: (next) => {
-                  setNotice(null)
-                  setScope(next)
-                },
+                label: t('filter.local'),
+                branches: repo.branches && Array.isArray(repo.branches.locals) ? repo.branches.locals : [],
+                selected: selectedLocals,
+                remote: false,
+                onChange: (next) => setGroup(false, next),
+              }),
+              h(BranchMultiMenu, {
+                t,
+                label: t('filter.remote'),
+                branches: repo.branches && Array.isArray(repo.branches.remotes) ? repo.branches.remotes : [],
+                selected: selectedRemotes,
+                remote: true,
+                onChange: (next) => setGroup(true, next),
               }),
               h(
                 'button',
@@ -2215,6 +2467,10 @@ window.__ModuleLoader__.load({
   border: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-layer-2);
   outline: none;
+}
+.gr-scope-wrap + .gr-scope-wrap .gr-scope-menu {
+  left: auto;
+  right: 0;
 }
 .gr-scope-group {
   padding: 7px 8px 3px;
