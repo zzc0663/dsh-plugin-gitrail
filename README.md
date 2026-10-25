@@ -11,7 +11,7 @@
 
 ![Gitrail 右侧栏](docs/assets/gitrail-sidebar.png)
 
-*右侧栏中的 Gitrail（默认显示所有分支）。*
+*右侧栏中的 Gitrail（默认显示所有分支，彩色 lane + 可折叠的「颜色 = 分支」图例）。*
 
 ![Gitrail 提交范围下拉](docs/assets/gitrail-scope-menu.png)
 

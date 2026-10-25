@@ -168,6 +168,7 @@ locale/{en,zh}.json       Plugin Manager 元数据
 icon.svg                  插件图标
 test/git.test.mjs         解析器 + 临时仓库集成测试
 test/host.test.mjs        路由 / loopback / Session 解析 / 错误码测试
+test/graph.test.mjs       纯函数 layoutGraph 的图形测试
 test-support/git.mjs      临时仓库测试工具
 scripts/check.mjs         清单 / 模块格式 / 本地化 / 图标一致性
 docs/                     架构、路线图、命名
