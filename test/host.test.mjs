@@ -194,6 +194,28 @@ test('GET /repo accepts explicit local and remote ref selections', async (t) => 
   assert.equal(response.body.repo.commits[0].subject, 'first')
 })
 
+test('GET /repo validates and applies the commit limit', async (t) => {
+  const dir = await makeRepo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await commit(dir, 'a.txt', 'a\n', 'first')
+  await commit(dir, 'b.txt', 'b\n', 'second')
+  await commit(dir, 'c.txt', 'c\n', 'third')
+  const route = harness({ live: { header: { cwd: dir } } })
+
+  const one = await request(route, { url: `/dsh-plugin-gitrail/repo?session=${SESSION}&limit=1` })
+  assert.equal(one.status, 200)
+  assert.equal(one.body.repo.commits.length, 1)
+  assert.equal(one.body.repo.commits[0].subject, 'third')
+
+  const tooSmall = await request(route, { url: `/dsh-plugin-gitrail/repo?session=${SESSION}&limit=0` })
+  assert.equal(tooSmall.status, 400)
+  assert.equal(tooSmall.body.code, 'request/bad-limit')
+
+  const tooLarge = await request(route, { url: `/dsh-plugin-gitrail/repo?session=${SESSION}&limit=501` })
+  assert.equal(tooLarge.status, 400)
+  assert.equal(tooLarge.body.code, 'request/bad-limit')
+})
+
 test('GET /repo falls back to the session index for a non-live session', async (t) => {
   const dir = await makeRepo()
   t.after(() => rm(dir, { recursive: true, force: true }))

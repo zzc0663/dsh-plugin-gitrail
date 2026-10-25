@@ -129,6 +129,7 @@ function statusOfGitError(error) {
     case 'request/bad-scope':
     case 'request/bad-ref':
     case 'request/bad-sha':
+    case 'request/bad-limit':
       return { status: 400, code: error.code }
     case 'git/unknown-ref':
       return { status: 409, code: 'git/unknown-ref' }
@@ -191,6 +192,16 @@ export function apply(ctx) {
               return
             }
 
+            const rawLimit = url.searchParams.get('limit')
+            let limit
+            if (rawLimit !== null) {
+              if (!/^\d+$/.test(rawLimit) || Number(rawLimit) < 1 || Number(rawLimit) > 500) {
+                sendJson(res, 400, { ok: false, code: 'request/bad-limit', message: 'limit must be 1–500' })
+                return
+              }
+              limit = Number(rawLimit)
+            }
+
             if (isCommit) {
               const sha = (url.searchParams.get('sha') ?? '').trim().toLowerCase()
               if (!SHA.test(sha)) {
@@ -206,7 +217,7 @@ export function apply(ctx) {
             if (rawScope === 'refs') {
               const locals = url.searchParams.getAll('local')
               const remotes = url.searchParams.getAll('remote')
-              const repo = await readRepoState(session.cwd, { locals, remotes })
+              const repo = await readRepoState(session.cwd, { locals, remotes, limit })
               sendJson(res, 200, { ok: true, repo })
               return
             }
@@ -233,7 +244,7 @@ export function apply(ctx) {
               }
             }
 
-            const repo = await readRepoState(session.cwd, { scope, ref })
+            const repo = await readRepoState(session.cwd, { scope, ref, limit })
             sendJson(res, 200, { ok: true, repo })
           } catch (error) {
             if (error instanceof GitError) {

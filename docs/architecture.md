@@ -50,13 +50,14 @@ sidebar.panellist「Gitrail 图谱」
 
 ## 3. HTTP 契约
 
-### `GET /dsh-plugin-gitrail/repo?session=<id>[&scope=all|branch|refs][&ref=<refname>][&local=<refname>&remote=<refname>…]`
+### `GET /dsh-plugin-gitrail/repo?session=<id>[&scope=all|branch|refs][&ref=<refname>][&local=<refname>&remote=<refname>…][&limit=1..500]`
 
 只允许 loopback 的 `Host`；只允许 GET。`session` 必须匹配 `^[A-Za-z0-9._:-]{1,200}$`。
 
 - `scope` 缺省为 `all`（所有本地 + 远程跟踪分支）。
 - `scope=branch` 时 `ref` 缺省为 `HEAD`；只接受 `HEAD` 或仓库中实际存在的完整 refname（`refs/heads/…`、`refs/remotes/…`）。
 - `scope=refs` 使用重复的 `local=` / `remote=` 参数；两组取并集，允许其中一组或两组为空。每个 ref 必须属于对应组（local 只能 `refs/heads/*`，remote 只能 `refs/remotes/*`），最多 100 个。
+- `limit` 为 1–500，缺省 80；客户端「加载更多」按 100 递增，搜索时直接请求 500。
 - 同时提供 `ref` 但省略 `scope` 时按 `branch` 处理；`scope=all` 时忽略 `ref`。
 - 单分支日志为 `git log <ref> --`；所有分支为 `git log --branches --remotes`；显式 refs 为 `git log <local…> <remote…> --`，都带 `--topo-order`。
 - 空 refs（`scope=refs` 且没有 local/remote）不运行 `git log`，直接返回空提交列表。
@@ -201,6 +202,8 @@ sidebar.panellist「Gitrail 图谱」
 - **提交图**：`layoutGraph()` 是纯函数，输入 `commits[].parents` + `branches`，输出每行 lane/边/节点；渲染为一个绝对定位 SVG，提交行固定 64px，subject 最多两行。lane 颜色按分支名稳定哈希到 8 色板，合并来源边继承来源色；远程 lane 虚线。颜色是分类数据可视化的唯一例外，其余 UI 仍只用 `--dsw-alias-*`。
 - **分支 rail**：选中分支 tip 是另一选中 tip 的祖先时（`main` 落后 `develop`），较新分支的线性链整体移到新 lane，旧 tip 到链首的边保留为斜线，表达「分支在这里创建」。
 - **共享选中**：`apply()` 创建插件级 selection store（`{sessionId, sha}`），右侧栏与全宽页都通过 slot `inject` 读取；侧栏点击先 `selection.select()` 再 `layout.selectPanel('gitrail-graph')`。全宽页详情通过 `/commit` 拉取 message / 文件 / diff。
+- **视图状态**：另一个插件级 view store 按 session 保存本地/远程筛选（`localStorage`，最多 20 个 session）；两个视图通过 `useSyncExternalStore` 共享。搜索为本地状态，搜索时请求 500 条并隐藏图谱，使用平铺列表。
+- **刷新**：窗口 focus / `visibilitychange` 触发 800ms 防抖的静默刷新；行高固定 64px，并用 `content-visibility: auto` 降低长列表渲染成本。
 
 ## 7. 文件地图
 

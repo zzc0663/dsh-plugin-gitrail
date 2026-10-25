@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-gitrail",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Rail for your repo — a read-only git branch and commit view in the DeepSeek Harness right sidebar.",
   "license": "MIT",
   "private": true,

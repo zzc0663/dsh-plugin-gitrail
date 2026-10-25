@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 semantic versioning.
 
+## [0.8.0] — 2026-10-25
+
+### Added
+
+- Commit search by message, author, email, SHA and refs. Search widens the
+  request window to the latest 500 commits and renders a plain result list
+  (the graph is hidden while searching).
+- Incremental **Load more**: the request limit starts at 80 and grows by 100 up
+  to 500; `limit` is validated by the Host.
+- Shared per-session view store: local/remote filters are synchronized between
+  the sidebar and the full page and persisted in `localStorage`.
+- Branch dropdown search with keyboard navigation and a no-match state.
+- Auto-refresh on window focus / tab visibility after an 800 ms debounce.
+- Cheap row virtualization via `content-visibility: auto` with the fixed 64px
+  row height.
+
+### Fixed
+
+- Search / filter state no longer resets when switching between the two views.
+
 ## [0.7.0] — 2026-10-25
 
 ### Fixed

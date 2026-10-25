@@ -53,6 +53,14 @@ window.__ModuleLoader__.load({
       'filter.remote': '远程',
       'filter.all': '全部',
       'filter.empty': '未选择任何分支',
+      'filter.search': '搜索分支',
+      'filter.noMatch': '没有匹配的分支',
+      'search.placeholder': '搜索提交、作者、SHA',
+      'search.label': '搜索提交',
+      'search.empty': '没有匹配的提交',
+      'search.loadingWindow': '在最近 500 条提交中搜索',
+      'action.loadMore': '加载更多',
+      'action.clearSearch': '清除搜索',
       'legend.title': '颜色 = 分支',
       'graph.merge': '合并',
       'graph.fork': '分叉点',
@@ -124,6 +132,14 @@ window.__ModuleLoader__.load({
       'filter.remote': 'Remote',
       'filter.all': 'All',
       'filter.empty': 'No branches selected',
+      'filter.search': 'Search branches',
+      'filter.noMatch': 'No matching branches',
+      'search.placeholder': 'Search message, author, SHA',
+      'search.label': 'Search commits',
+      'search.empty': 'No matching commits',
+      'search.loadingWindow': 'Searching the latest 500 commits',
+      'action.loadMore': 'Load more',
+      'action.clearSearch': 'Clear search',
       'legend.title': 'Color = branch',
       'graph.merge': 'Merge',
       'graph.fork': 'Branch point',
@@ -229,7 +245,7 @@ window.__ModuleLoader__.load({
 
     /* ================= data ================= */
 
-    function useRepo(sessionId, filter, nonce) {
+    function useRepo(sessionId, filter, nonce, limit = 80) {
       const [state, setState] = React.useState({ status: 'idle', data: null, error: null, sessionId: null })
 
       React.useEffect(() => {
@@ -247,7 +263,7 @@ window.__ModuleLoader__.load({
           sessionId,
         }))
 
-        const params = new URLSearchParams({ session: sessionId })
+        const params = new URLSearchParams({ session: sessionId, limit: String(limit) })
         if (filter) {
           params.set('scope', 'refs')
           for (const ref of filter.locals) params.append('local', ref)
@@ -288,7 +304,7 @@ window.__ModuleLoader__.load({
           alive = false
           controller.abort()
         }
-      }, [sessionId, filter, nonce])
+      }, [sessionId, filter, nonce, limit])
 
       return state
     }
@@ -316,6 +332,92 @@ window.__ModuleLoader__.load({
           if (value === null) return
           value = null
           emit()
+        },
+      }
+    }
+
+    const VIEW_STORE_KEY = 'dsh-plugin-gitrail:view:v1'
+
+    function normalizeFilterValue(value) {
+      if (!value || typeof value !== 'object') return null
+      const clean = (list) => {
+        if (!Array.isArray(list)) return []
+        return Array.from(
+          new Set(
+            list.filter((item) => typeof item === 'string' && item !== '').slice(0, 100),
+          ),
+        )
+      }
+      return { locals: clean(value.locals), remotes: clean(value.remotes) }
+    }
+
+    function sameFilter(a, b) {
+      if (a === null || b === null) return a === b
+      return (
+        a.locals.length === b.locals.length &&
+        a.remotes.length === b.remotes.length &&
+        a.locals.every((ref, index) => ref === b.locals[index]) &&
+        a.remotes.every((ref, index) => ref === b.remotes[index])
+      )
+    }
+
+    function createViewStore() {
+      const filters = new Map()
+      const cache = new Map()
+      const listeners = new Set()
+      const storage = typeof localStorage === 'undefined' ? null : localStorage
+
+      try {
+        const raw = storage ? storage.getItem(VIEW_STORE_KEY) : null
+        const saved = raw ? JSON.parse(raw) : null
+        if (saved && typeof saved === 'object') {
+          for (const [sessionId, value] of Object.entries(saved)) {
+            const filter = normalizeFilterValue(value)
+            if (filter) filters.set(sessionId, filter)
+          }
+        }
+      } catch {
+        /* a corrupt or unavailable preference store must not break the panel */
+      }
+
+      const emit = () => {
+        for (const listener of listeners) listener()
+      }
+      const persist = () => {
+        if (!storage) return
+        try {
+          const payload = {}
+          for (const [sessionId, filter] of Array.from(filters.entries()).slice(-20)) {
+            payload[sessionId] = filter
+          }
+          storage.setItem(VIEW_STORE_KEY, JSON.stringify(payload))
+        } catch {
+          /* localStorage can be full or disabled */
+        }
+      }
+
+      return {
+        getSnapshot: (sessionId) => {
+          if (!sessionId) return null
+          if (!cache.has(sessionId)) cache.set(sessionId, filters.get(sessionId) || null)
+          return cache.get(sessionId)
+        },
+        set: (sessionId, next) => {
+          if (!sessionId) return
+          const filter = normalizeFilterValue(next)
+          const previous = cache.has(sessionId) ? cache.get(sessionId) : filters.get(sessionId) || null
+          if (sameFilter(previous, filter)) return
+          cache.set(sessionId, filter)
+          if (filter) filters.set(sessionId, filter)
+          else filters.delete(sessionId)
+          persist()
+          emit()
+        },
+        subscribe: (listener) => {
+          listeners.add(listener)
+          return () => {
+            listeners.delete(listener)
+          }
         },
       }
     }
@@ -353,8 +455,49 @@ window.__ModuleLoader__.load({
         : { locals: next, remotes: filter ? filter.remotes : branchRefs(repo, true) }
     }
 
-    function fileAddressFor(sessionId, cwd, root, file) {
-      const normalize = (value) => String(value || '').replace(/\\/g, '/').replace(/\/+$/, '')
+    function commitMatches(commit, query) {
+      const needle = String(query || '').trim().toLowerCase()
+      if (needle === '') return true
+      if (!commit) return false
+      const refs = Array.isArray(commit.refs) ? commit.refs : []
+      const haystack = [
+        commit.subject,
+        commit.author,
+        commit.email,
+        commit.sha,
+        commit.short,
+        ...refs,
+      ]
+        .filter(Boolean)
+        .join('\n')
+        .toLowerCase()
+      return haystack.includes(needle)
+    }
+
+    function useAutoRefresh(refresh) {
+      const refreshRef = React.useRef(refresh)
+      refreshRef.current = refresh
+      React.useEffect(() => {
+        let timer = null
+        const schedule = () => {
+          if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+          if (timer !== null) clearTimeout(timer)
+          timer = setTimeout(() => {
+            timer = null
+            refreshRef.current()
+          }, 800)
+        }
+        window.addEventListener('focus', schedule)
+        document.addEventListener('visibilitychange', schedule)
+        return () => {
+          if (timer !== null) clearTimeout(timer)
+          window.removeEventListener('focus', schedule)
+          document.removeEventListener('visibilitychange', schedule)
+        }
+      }, [])
+    }
+
+    function fileAddressFor(sessionId, cwd, root, file) {      const normalize = (value) => String(value || '').replace(/\\/g, '/').replace(/\/+$/, '')
       const absolute = `${normalize(root)}/${String(file || '').replace(/\\/g, '/')}`
       const workspace = normalize(cwd)
       const relative = workspace && absolute.startsWith(`${workspace}/`) ? absolute.slice(workspace.length + 1) : absolute
@@ -1282,6 +1425,46 @@ window.__ModuleLoader__.load({
 
     let multiMenuSeq = 0
 
+    function SearchBox(props) {
+      const value = props.value || ''
+      return h(
+        'div',
+        { className: `gr-search${value ? ' has-value' : ''}` },
+        h(
+          'svg',
+          { viewBox: '0 0 16 16', width: 12, height: 12, fill: 'none', 'aria-hidden': true },
+          h('circle', { cx: 7, cy: 7, r: 4.5, stroke: 'currentColor', strokeWidth: 1.4 }),
+          h('path', { d: 'M10.5 10.5 14 14', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round' }),
+        ),
+        h('input', {
+          type: 'search',
+          value,
+          placeholder: props.t('search.placeholder'),
+          'aria-label': props.t('search.label'),
+          onChange: (event) => props.onChange(event.target.value),
+          onKeyDown: (event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              props.onChange('')
+            }
+          },
+        }),
+        value
+          ? h(
+              'button',
+              {
+                type: 'button',
+                className: 'gr-search-clear',
+                onClick: () => props.onChange(''),
+                title: props.t('action.clearSearch'),
+                'aria-label': props.t('action.clearSearch'),
+              },
+              '×',
+            )
+          : null,
+      )
+    }
+
     function BranchMultiMenu(props) {
       const t = props.t
       const label = props.label
@@ -1290,17 +1473,23 @@ window.__ModuleLoader__.load({
       const remote = Boolean(props.remote)
       const [open, setOpen] = React.useState(false)
       const [active, setActive] = React.useState(0)
+      const [query, setQuery] = React.useState('')
       const wrapRef = React.useRef(null)
       const listRef = React.useRef(null)
+      const inputRef = React.useRef(null)
       const triggerRef = React.useRef(null)
       const optionRefs = React.useRef([])
       const listId = React.useMemo(() => `gr-multi-${++multiMenuSeq}`, [])
       const refs = branches.map((branch) => branch.refname).filter(Boolean)
       const selectedSet = new Set(selected)
       const allSelected = refs.length > 0 && refs.every((ref) => selectedSet.has(ref))
+      const needle = query.trim().toLowerCase()
+      const filtered = needle
+        ? branches.filter((branch) => (branch.name || '').toLowerCase().includes(needle))
+        : branches
       const options = [
-        { key: '__all__', label: t('filter.all'), all: true },
-        ...branches.map((branch) => ({ key: branch.refname, label: branch.name, all: false })),
+        ...(needle ? [] : [{ key: '__all__', label: t('filter.all'), all: true }]),
+        ...filtered.map((branch) => ({ key: branch.refname, label: branch.name, all: false })),
       ]
 
       const close = (focusTrigger) => {
@@ -1327,7 +1516,7 @@ window.__ModuleLoader__.load({
         document.addEventListener('mousedown', onDocumentMouseDown)
         setActive(0)
         const raf = requestAnimationFrame(() => {
-          if (listRef.current !== null) listRef.current.focus()
+          if (inputRef.current !== null) inputRef.current.focus()
         })
         return () => {
           document.removeEventListener('mousedown', onDocumentMouseDown)
@@ -1346,7 +1535,7 @@ window.__ModuleLoader__.load({
         else if (bottom > menu.scrollTop + menu.clientHeight) menu.scrollTop = bottom - menu.clientHeight
       }, [open, active])
 
-      const onKeyDown = (event) => {
+      const onKeyDown = (event, fromInput = false) => {
         if (event.key === 'Escape') {
           event.preventDefault()
           event.stopPropagation()
@@ -1359,12 +1548,12 @@ window.__ModuleLoader__.load({
         }
         if (event.key === 'ArrowDown') {
           event.preventDefault()
-          setActive((value) => (value + 1) % options.length)
+          if (options.length > 0) setActive((value) => (value + 1) % options.length)
           return
         }
         if (event.key === 'ArrowUp') {
           event.preventDefault()
-          setActive((value) => (value - 1 + options.length) % options.length)
+          if (options.length > 0) setActive((value) => (value - 1 + options.length) % options.length)
           return
         }
         if (event.key === 'Home') {
@@ -1374,14 +1563,18 @@ window.__ModuleLoader__.load({
         }
         if (event.key === 'End') {
           event.preventDefault()
-          setActive(options.length - 1)
+          setActive(Math.max(0, options.length - 1))
           return
         }
-        if (event.key === 'Enter' || event.key === ' ') {
+        if (event.key === 'Enter' || (event.key === ' ' && !fromInput)) {
           event.preventDefault()
-          toggle(options[active])
+          if (options[active]) toggle(options[active])
         }
       }
+
+      React.useEffect(() => {
+        if (!open) setQuery('')
+      }, [open])
 
       const rows = options.map((option, index) => {
         const checked = option.all ? allSelected : selectedSet.has(option.key)
@@ -1443,10 +1636,26 @@ window.__ModuleLoader__.load({
                 tabIndex: -1,
                 ref: listRef,
                 'aria-label': label,
-                'aria-activedescendant': `${listId}-${active}`,
+                'aria-activedescendant': options.length > 0 ? `${listId}-${active}` : undefined,
                 onKeyDown,
               },
-              rows,
+              h('input', {
+                ref: inputRef,
+                className: 'gr-scope-search',
+                type: 'search',
+                value: query,
+                placeholder: t('filter.search'),
+                'aria-label': t('filter.search'),
+                onChange: (event) => {
+                  setQuery(event.target.value)
+                  setActive(0)
+                },
+                onKeyDown: (event) => {
+                  event.stopPropagation()
+                  onKeyDown(event, true)
+                },
+              }),
+              rows.length > 0 ? rows : h('div', { className: 'gr-scope-empty' }, t('filter.noMatch')),
             )
           : null,
       )
@@ -1623,6 +1832,7 @@ window.__ModuleLoader__.load({
       const sessionId = props.sessionId
       const openPanel = props.openPanel
       const selection = props.selection
+      const viewStore = props.viewStore
       const translate = props.t
       const t = (key) => {
         if (typeof translate !== 'function') return key
@@ -1634,29 +1844,51 @@ window.__ModuleLoader__.load({
       }
 
       const [nonce, setNonce] = React.useState(0)
-      const [filter, setFilter] = React.useState(null)
+      const [fallbackFilter, setFallbackFilter] = React.useState(null)
       const [remotesOpen, setRemotesOpen] = React.useState(true)
       const [notice, setNotice] = React.useState(null)
-      const state = useRepo(sessionId, filter, nonce)
+      const [limit, setLimit] = React.useState(80)
+      const [search, setSearch] = React.useState('')
+      const filter = React.useSyncExternalStore(
+        React.useCallback(
+          (callback) => (viewStore ? viewStore.subscribe(callback) : () => {}),
+          [viewStore],
+        ),
+        React.useCallback(
+          () => (viewStore ? viewStore.getSnapshot(sessionId) : fallbackFilter),
+          [viewStore, sessionId, fallbackFilter],
+        ),
+        () => null,
+      )
+      const setFilter = (next) => {
+        if (viewStore) viewStore.set(sessionId, next)
+        else setFallbackFilter(next)
+      }
+      const state = useRepo(sessionId, filter, nonce, search.trim() ? 500 : limit)
       const repo = state.data
       const loading = state.status === 'loading'
+      const searching = search.trim() !== ''
       const graph = React.useMemo(() => {
-        if (!repo || !Array.isArray(repo.commits) || repo.commits.length === 0) return null
+        if (searching || !repo || !Array.isArray(repo.commits) || repo.commits.length === 0) return null
         return layoutGraph(repo.commits, repo.branches, { laneGap: 18 })
-      }, [repo])
+      }, [repo, searching])
       const nodeBySha = graph ? new Map(graph.nodes.map((node) => [node.sha, node])) : null
       const refresh = () => {
         setNotice(null)
         setNonce((value) => value + 1)
       }
+      const loadMore = () => setLimit((value) => Math.min(500, value + 100))
+      useAutoRefresh(refresh)
 
       const sessionRef = React.useRef(sessionId)
       React.useEffect(() => {
         if (sessionRef.current === sessionId) return
         sessionRef.current = sessionId
-        setFilter(null)
+        if (!viewStore) setFallbackFilter(null)
+        setLimit(80)
+        setSearch('')
         setNotice(null)
-      }, [sessionId])
+      }, [sessionId, viewStore])
 
       React.useEffect(() => {
         if (!state.error) return
@@ -1694,6 +1926,7 @@ window.__ModuleLoader__.load({
         const selectedLocals = selectedFilterRefs(filter, repo, false)
         const selectedRemotes = selectedFilterRefs(filter, repo, true)
         const commits = Array.isArray(repo.commits) ? repo.commits : []
+        const visibleCommits = searching ? commits.filter((commit) => commitMatches(commit, search)) : commits
         const isLocalSelected = (branch) => filter !== null && selectedLocals.includes(branch.refname)
         const isRemoteSelected = (branch) => filter !== null && selectedRemotes.includes(branch.refname)
         const toggleBranch = (remote, branch) => {
@@ -1816,29 +2049,33 @@ window.__ModuleLoader__.load({
                   onChange: (next) => setGroup(true, next),
                 }),
               ),
-              h('span', { className: 'gr-count' }, String(commits.length)),
+              h('span', { className: 'gr-count' }, searching ? `${visibleCommits.length}/${commits.length}` : String(commits.length)),
             ),
-            h(GraphLegend, { legend: graph ? graph.legend : [], t }),
-            commits.length === 0
+            h(SearchBox, { t, value: search, onChange: setSearch }),
+            searching ? h('div', { className: 'gr-search-note' }, t('search.loadingWindow')) : null,
+            searching ? null : h(GraphLegend, { legend: graph ? graph.legend : [], t }),
+            visibleCommits.length === 0
               ? h(Notice, {
-                  title: repo.unborn
-                    ? t('state.unborn')
-                    : filterEmpty
-                      ? t('filter.empty')
-                      : t('scope.emptyAll'),
-                  hint: repo.unborn ? t('state.unbornHint') : undefined,
+                  title: searching
+                    ? t('search.empty')
+                    : repo.unborn
+                      ? t('state.unborn')
+                      : filterEmpty
+                        ? t('filter.empty')
+                        : t('scope.emptyAll'),
+                  hint: repo.unborn && !searching ? t('state.unbornHint') : undefined,
                 })
               : h(
                   'div',
                   {
-                    className: 'gr-graph-wrap',
+                    className: `gr-graph-wrap${searching ? ' is-plain' : ''}`,
                     style: graph ? { '--gr-graph-width': `${graph.width + 8}px` } : undefined,
                   },
                   graph ? h(GraphSvg, { graph }) : null,
                   h(
                     'ol',
                     { className: 'gr-commits' },
-                    commits.map((commit) =>
+                    visibleCommits.map((commit) =>
                       h(CommitRow, {
                         key: commit.sha,
                         commit,
@@ -1852,6 +2089,9 @@ window.__ModuleLoader__.load({
                     ),
                   ),
                 ),
+            !searching && commits.length >= limit && limit < 500
+              ? h('button', { type: 'button', className: 'gr-text-button gr-load-more', onClick: loadMore }, t('action.loadMore'))
+              : null,
           ),
         ]
       } else {
@@ -1928,6 +2168,7 @@ window.__ModuleLoader__.load({
       const sessions = props.sessions
       const selection = props.selection
       const openFile = props.openFile
+      const viewStore = props.viewStore
       const subscribe = React.useCallback(
         (callback) => {
           if (!sessions || !sessions.list || typeof sessions.list.subscribe !== 'function') return () => {}
@@ -1945,16 +2186,33 @@ window.__ModuleLoader__.load({
       const sessionId =
         ids.find((id) => (byId[id] && byId[id].retainedBy && byId[id].retainedBy.mainView) > 0) || ids[0]
 
-      const [filter, setFilter] = React.useState(null)
+      const [fallbackFilter, setFallbackFilter] = React.useState(null)
       const [nonce, setNonce] = React.useState(0)
       const [selectedSha, setSelectedSha] = React.useState(null)
       const [notice, setNotice] = React.useState(null)
+      const [limit, setLimit] = React.useState(80)
+      const [search, setSearch] = React.useState('')
+      const filter = React.useSyncExternalStore(
+        React.useCallback(
+          (callback) => (viewStore ? viewStore.subscribe(callback) : () => {}),
+          [viewStore],
+        ),
+        React.useCallback(
+          () => (viewStore ? viewStore.getSnapshot(sessionId) : fallbackFilter),
+          [viewStore, sessionId, fallbackFilter],
+        ),
+        () => null,
+      )
+      const setFilter = (next) => {
+        if (viewStore) viewStore.set(sessionId, next)
+        else setFallbackFilter(next)
+      }
       const selectionSnapshot = React.useSyncExternalStore(
         (callback) => (selection ? selection.subscribe(callback) : () => {}),
         () => (selection ? selection.getSnapshot() : null),
         () => null,
       )
-      const state = useRepo(sessionId, filter, nonce)
+      const state = useRepo(sessionId, filter, nonce, search.trim() ? 500 : limit)
       const repo = state.data
       const loading = state.status === 'loading'
       const localRefs = branchRefs(repo, false)
@@ -1973,27 +2231,33 @@ window.__ModuleLoader__.load({
       const detailState = useCommitDetail(sessionId, selectedSha)
       const detail = detailState.data
       const detailCommit = detail && detail.commit ? detail.commit : null
+      const searching = search.trim() !== ''
       const graph = React.useMemo(() => {
-        if (!repo || !Array.isArray(repo.commits) || repo.commits.length === 0) return null
+        if (searching || !repo || !Array.isArray(repo.commits) || repo.commits.length === 0) return null
         return layoutGraph(repo.commits, repo.branches, { rowHeight: 64, laneGap: 26, pad: 16 })
-      }, [repo])
+      }, [repo, searching])
       const nodeBySha = graph ? new Map(graph.nodes.map((node) => [node.sha, node])) : null
       const commits = repo && Array.isArray(repo.commits) ? repo.commits : []
+      const visibleCommits = searching ? commits.filter((commit) => commitMatches(commit, search)) : commits
       const selectedCommit = selectedSha ? commits.find((commit) => commit.sha === selectedSha) : undefined
       const selectedNode = selectedSha && nodeBySha ? nodeBySha.get(selectedSha) : undefined
       const refresh = () => {
         setNotice(null)
         setNonce((value) => value + 1)
       }
+      const loadMore = () => setLimit((value) => Math.min(500, value + 100))
+      useAutoRefresh(refresh)
 
       const sessionRef = React.useRef(sessionId)
       React.useEffect(() => {
         if (sessionRef.current === sessionId) return
         sessionRef.current = sessionId
-        setFilter(null)
+        if (!viewStore) setFallbackFilter(null)
+        setLimit(80)
+        setSearch('')
         setSelectedSha(null)
         setNotice(null)
-      }, [sessionId])
+      }, [sessionId, viewStore])
 
       React.useEffect(() => {
         if (!repo || !Array.isArray(repo.commits) || repo.commits.length === 0) {
@@ -2007,6 +2271,16 @@ window.__ModuleLoader__.load({
           return repo.commits.some((commit) => commit.sha === previous) ? previous : repo.commits[0].sha
         })
       }, [repo, selectionSnapshot, sessionId])
+
+      React.useEffect(() => {
+        if (!searching) return
+        const matches = commits.filter((commit) => commitMatches(commit, search))
+        if (matches.length === 0) {
+          if (selectedSha !== null) setSelectedSha(null)
+          return
+        }
+        if (!matches.some((commit) => commit.sha === selectedSha)) setSelectedSha(matches[0].sha)
+      }, [searching, search, commits, selectedSha])
 
       const selectCommit = (sha) => {
         setSelectedSha(sha)
@@ -2062,28 +2336,39 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { className: 'gr-section-head', key: 'heading' },
-            h('span', null, t('page.title')),
-            h('span', { className: 'gr-count' }, String(commits.length)),
+            h('span', null, searching ? t('search.label') : t('page.title')),
+            h(
+              'span',
+              { className: 'gr-count' },
+              searching ? `${visibleCommits.length}/${commits.length}` : String(commits.length),
+            ),
           ),
-          h(GraphLegend, { key: 'legend', legend: graph ? graph.legend : [], t }),
-          commits.length === 0
+          searching ? h('div', { className: 'gr-search-note', key: 'search-note' }, t('search.loadingWindow')) : null,
+          searching ? null : h(GraphLegend, { key: 'legend', legend: graph ? graph.legend : [], t }),
+          visibleCommits.length === 0
             ? h(Notice, {
                 key: 'empty',
-                title: repo.unborn ? t('state.unborn') : filterEmpty ? t('filter.empty') : t('scope.emptyAll'),
-                hint: repo.unborn ? t('state.unbornHint') : undefined,
+                title: searching
+                  ? t('search.empty')
+                  : repo.unborn
+                    ? t('state.unborn')
+                    : filterEmpty
+                      ? t('filter.empty')
+                      : t('scope.emptyAll'),
+                hint: repo.unborn && !searching ? t('state.unbornHint') : undefined,
               })
             : h(
                 'div',
                 {
                   key: 'graph',
-                  className: 'gr-graph-wrap',
+                  className: `gr-graph-wrap${searching ? ' is-plain' : ''}`,
                   style: graph ? { '--gr-graph-width': `${graph.width + 10}px` } : undefined,
                 },
                 graph ? h(GraphSvg, { graph }) : null,
                 h(
                   'ol',
                   { className: 'gr-commits' },
-                  commits.map((commit) => {
+                  visibleCommits.map((commit) => {
                     const node = nodeBySha ? nodeBySha.get(commit.sha) : undefined
                     return h(CommitRow, {
                       key: commit.sha,
@@ -2097,6 +2382,9 @@ window.__ModuleLoader__.load({
                   }),
                 ),
               ),
+          !searching && commits.length >= limit && limit < 500
+            ? h('button', { type: 'button', className: 'gr-text-button gr-load-more', onClick: loadMore }, t('action.loadMore'))
+            : null,
         ]
 
         return h(
@@ -2120,6 +2408,7 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'gr-page-tools' },
+              h(SearchBox, { t, value: search, onChange: setSearch }),
               h(
                 'span',
                 { className: 'gr-branch-chip', title: repo.upstream || '' },
@@ -2513,6 +2802,58 @@ window.__ModuleLoader__.load({
   letter-spacing: 0.02em;
   color: var(--dsw-alias-label-secondary);
 }
+.gr-search {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+  margin: 2px 0 6px;
+  padding: 2px 6px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 5px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+}
+.gr-search:focus-within {
+  border-color: var(--dsw-alias-brand-primary);
+}
+.gr-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 10px;
+  line-height: 18px;
+  outline: none;
+}
+.gr-search input::placeholder {
+  color: var(--dsw-alias-label-secondary);
+}
+.gr-search-clear {
+  appearance: none;
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.gr-search-note {
+  margin: 0 0 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+}
+.gr-load-more {
+  margin-top: 10px;
+  width: 100%;
+  text-align: center;
+}
 .gr-count {
   font-weight: 400;
   font-size: 10px;
@@ -2596,6 +2937,30 @@ window.__ModuleLoader__.load({
 .gr-scope-wrap + .gr-scope-wrap .gr-scope-menu {
   left: auto;
   right: 0;
+}
+.gr-scope-search {
+  width: 100%;
+  box-sizing: border-box;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-bottom: 4px;
+  padding: 4px 6px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 5px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 10px;
+  outline: none;
+}
+.gr-scope-search:focus {
+  border-color: var(--dsw-alias-brand-primary);
+}
+.gr-scope-empty {
+  padding: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
 }
 .gr-scope-group {
   padding: 7px 8px 3px;
@@ -2847,6 +3212,11 @@ window.__ModuleLoader__.load({
   height: 64px;
   box-sizing: border-box;
   padding: 6px 0 6px var(--gr-graph-width, 24px);
+  content-visibility: auto;
+  contain-intrinsic-size: 64px;
+}
+.gr-graph-wrap.is-plain .gr-commit {
+  padding-left: 0;
 }
 .gr-commit-body {
   min-width: 0;
@@ -3091,6 +3461,11 @@ window.__ModuleLoader__.load({
   gap: 10px;
   flex: none;
 }
+.gr-page-tools .gr-search {
+  flex: none;
+  width: 190px;
+  margin: 0;
+}
 .gr-page-body {
   flex: 1;
   min-height: 0;
@@ -3334,6 +3709,7 @@ button.gr-file-row:hover {
       const sessions = ctx.get('sessions')
       const layout = ctx.get('layout')
       const selection = createSelectionStore()
+      const viewStore = createViewStore()
       const sidebarRight = ctx.get('sidebarRight')
       const openFile =
         sidebarRight && typeof sidebarRight.openResource === 'function'
@@ -3373,6 +3749,7 @@ button.gr-file-row:hover {
                 inject: () => ({
                   openPanel: typeof layout?.selectPanel === 'function' ? () => layout.selectPanel(PANEL_ID) : undefined,
                   selection,
+                  viewStore,
                 }),
               },
               GitrailBody,
@@ -3389,7 +3766,7 @@ button.gr-file-row:hover {
                 name: 'main',
                 key: PANEL_ID,
                 locale: NS,
-                inject: () => ({ sessions, selection, openFile }),
+                inject: () => ({ sessions, selection, openFile, viewStore }),
               },
               GitrailPage,
             ),
@@ -3419,7 +3796,9 @@ button.gr-file-row:hover {
     if (globalThis.__GITRAIL_TEST__) {
       plugin.__layoutGraph = layoutGraph
       plugin.__createSelectionStore = createSelectionStore
+      plugin.__createViewStore = createViewStore
       plugin.__branchColorIndex = branchColorIndex
+      plugin.__commitMatches = commitMatches
       plugin.__fileAddressFor = fileAddressFor
     }
     return plugin

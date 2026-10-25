@@ -7,7 +7,7 @@
 - [x] 只读 git 适配器：分支、当前分支、dirty、ahead/behind、最近 80 条提交
 - [x] Client：`gitrail` tab type + guide entry + `sidebar.right.pane.tab` body
 - [x] 错误态、空仓库、detached HEAD、刷新
-- [x] `npm run check`、45 项 `npm test`
+- [x] `npm run check`、48 项 `npm test`
 
 **已完成**：desktop profile 本机 preview 安装与暗色视觉验证；亮色主题、窄栏待检查。
 
@@ -27,6 +27,9 @@
 - [x] 右侧栏点击提交 → 打开全宽页并选中；全宽页点击提交 → 右侧详情。
 - [x] **本地 / 远程双多选筛选**：两个下拉独立组合，远程分支默认展开，分支行点选同步；Host 支持 `scope=refs` + 重复 ref 参数。
 - [x] **分支斜向 rail**：选中分支 tip 是另一分支祖先时，新分支单独 lane，斜线从旧 tip 向上接入（本仓库 `main`/`develop`）。
+- [x] **提交搜索与加载更多**：message/author/SHA/refs 搜索，窗口 500；limit 80→500 分页；固定行高 + `content-visibility`。
+- [x] **筛选同步与记忆**：插件级 view store，按 session 持久化本地/远程筛选；分支菜单支持搜索。
+- [x] **自动刷新**：窗口 focus / tab visible 时 800ms 防抖刷新。
 - [ ] refs 装饰（分支 / tag / remote）与 lane 对齐，过长截断；固定行高保证 SVG 对齐。
 - [ ] 窗口重新聚焦 / tab 重新可见时静默刷新；保留手动刷新。
 - [ ] 长列表：虚拟化或分段加载（先测 500 条提交的渲染成本）。

@@ -263,3 +263,36 @@ test('file addresses stay relative to the session workspace', () => {
   const nested = plugin.__fileAddressFor('session-1', 'D:/work', 'D:/work/demo', 'src/a.ts')
   assert.equal(nested, 'dsh-resource://file/session/session-1/demo/src/a.ts')
 })
+
+test('commit search matches subject, author, SHA and refs', () => {
+  const item = commit('abc1234', [], {
+    subject: 'feat: add graph',
+    refs: ['HEAD -> develop'],
+    author: 'Ada',
+    email: 'ada@example.invalid',
+  })
+
+  assert.equal(plugin.__commitMatches(item, 'graph'), true)
+  assert.equal(plugin.__commitMatches(item, 'ADA'), true)
+  assert.equal(plugin.__commitMatches(item, 'abc123'), true)
+  assert.equal(plugin.__commitMatches(item, 'develop'), true)
+  assert.equal(plugin.__commitMatches(item, 'nope'), false)
+  assert.equal(plugin.__commitMatches(item, ''), true)
+})
+
+test('the view store shares and de-duplicates filters per session', () => {
+  const store = plugin.__createViewStore()
+  let changes = 0
+  const off = store.subscribe(() => {
+    changes += 1
+  })
+
+  store.set('s1', { locals: ['refs/heads/main'], remotes: [] })
+  assert.deepEqual(store.getSnapshot('s1'), { locals: ['refs/heads/main'], remotes: [] })
+  store.set('s1', { locals: ['refs/heads/main'], remotes: [] })
+  assert.equal(changes, 1)
+  store.set('s1', null)
+  assert.equal(store.getSnapshot('s1'), null)
+  assert.equal(changes, 2)
+  off()
+})
