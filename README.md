@@ -17,6 +17,10 @@
 
 *本仓库的 `main` 落后于 `develop`：`main` 的 tip 留在左侧 lane，`develop` 单独占右侧 lane，斜线在 `main` 处向上接入，而不是一条直线。*
 
+![按文件看 diff](docs/assets/gitrail-file-diff.png)
+
+*点击「改动文件」里的任意一行只显示该文件；文件行有选中态，SHA 旁可直接复制。*
+
 ![Gitrail 右侧栏](docs/assets/gitrail-sidebar.png)
 
 *右侧栏快捷视图：远程分支默认展开，分支圆点与 lane 同色。*
