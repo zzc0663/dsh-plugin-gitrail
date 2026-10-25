@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 semantic versioning.
 
+## [0.4.0] — 2026-10-25
+
+### Added
+
+- Full-width **Gitrail Graph** main panel: registered in `sidebar.panellist` and
+  the root `main` keyed slot, with the current session's colored graph on the
+  left and a commit-info panel on the right.
+- Branch-tip handoff: when history reaches another branch's tip, the lane adopts
+  that branch's color and label, so shared ancestry no longer paints one color
+  (for example `develop` handing over to `main` at `main`'s tip).
+- Row tinting by lane color, branch pills at tips, a selectable commit row, and
+  an "open full graph" button in the sidebar tab.
+
+### Fixed
+
+- The graph page includes the shared stylesheet, lane color variables, and
+  session discovery through the client `sessions` service.
+
 ## [0.3.0] — 2026-10-25
 
 ### Added

@@ -195,3 +195,18 @@ test('one commit with several branch tips yields one node', () => {
   assert.equal(graph.nodes[0].lane, 0)
   assert.equal(graph.nodes[0].merge, false)
 })
+
+test('a branch tip hands the lane over to its own branch color', () => {
+  const graph = layoutGraph(
+    [commit('c3', ['c2']), commit('c2', ['c1']), commit('c1', [])],
+    branches([
+      { name: 'develop', sha: 'c3', current: true },
+      { name: 'main', sha: 'c2' },
+    ]),
+  )
+
+  assert.equal(graph.nodes[0].label, 'develop')
+  assert.equal(graph.nodes[1].label, 'main')
+  assert.equal(graph.nodes[1].tip.name, 'main')
+  assert.notEqual(graph.nodes[0].color, graph.nodes[1].color)
+})

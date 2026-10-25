@@ -17,6 +17,7 @@ window.__ModuleLoader__.load({
 
     const ID = 'dsh-plugin-gitrail'
     const KIND = 'gitrail'
+    const PANEL_ID = 'gitrail-graph'
     const NS = 'gitrail'
     const ENDPOINT = '/dsh-plugin-gitrail/repo'
 
@@ -50,6 +51,18 @@ window.__ModuleLoader__.load({
       'legend.title': '颜色 = 分支',
       'graph.merge': '合并',
       'graph.fork': '分叉点',
+      'panel.label': 'Gitrail 图谱',
+      'page.title': '图谱',
+      'page.detail': '提交信息',
+      'page.selectCommit': '选择一个提交查看信息',
+      'page.empty': '请先选择一个会话',
+      'page.sha': '提交',
+      'page.author': '作者',
+      'page.date': '时间',
+      'page.parents': '父提交',
+      'page.refs': '引用',
+      'page.diffLater': 'diff / stat 预览将在 M2 提供。',
+      'action.openPanel': '全宽打开图谱',
       'meta.detached': '游离 HEAD',
       'meta.unborn': '空仓库',
       'meta.ahead': '领先',
@@ -95,6 +108,18 @@ window.__ModuleLoader__.load({
       'legend.title': 'Color = branch',
       'graph.merge': 'Merge',
       'graph.fork': 'Branch point',
+      'panel.label': 'Gitrail Graph',
+      'page.title': 'Graph',
+      'page.detail': 'Commit info',
+      'page.selectCommit': 'Select a commit to inspect it',
+      'page.empty': 'Select a session first',
+      'page.sha': 'Commit',
+      'page.author': 'Author',
+      'page.date': 'Date',
+      'page.parents': 'Parents',
+      'page.refs': 'Refs',
+      'page.diffLater': 'diff / stat preview arrives in M2.',
+      'action.openPanel': 'Open full graph',
       'meta.detached': 'Detached HEAD',
       'meta.unborn': 'Empty repository',
       'meta.ahead': 'ahead',
@@ -153,6 +178,20 @@ window.__ModuleLoader__.load({
           d: 'M13 2.8v2.9H10.1',
           stroke: 'currentColor',
           strokeWidth: 1.5,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+        }),
+      )
+    }
+
+    function ExpandGlyph() {
+      return h(
+        'svg',
+        { viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', 'aria-hidden': true, style: { display: 'block' } },
+        h('path', {
+          d: 'M6 2H2v4M10 2h4v4M14 10v4h-4M2 10v4h4',
+          stroke: 'currentColor',
+          strokeWidth: 1.4,
           strokeLinecap: 'round',
           strokeLinejoin: 'round',
         }),
@@ -257,6 +296,16 @@ window.__ModuleLoader__.load({
         })
       } catch {
         return new Date(time).toISOString().slice(0, 10)
+      }
+    }
+
+    function formatFullDate(iso) {
+      const time = Date.parse(iso)
+      if (!Number.isFinite(time)) return iso || ''
+      try {
+        return new Date(time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+      } catch {
+        return new Date(time).toLocaleString()
       }
     }
 
@@ -391,9 +440,13 @@ window.__ModuleLoader__.load({
         if (lane === undefined) lane = firstFree(0)
         const expected = active[lane]
         const tip = pickTip(commit.sha)
-        const color = expected ? expected.color : tip ? tip.color : laneColor(commit.sha)
-        const remote = expected ? expected.remote : tip ? tip.remote : false
-        const label = expected ? expected.label : tip ? tip.name : undefined
+        const tipKey = tip ? (tip.remote ? remoteColorKey(tip.name) : tip.name) : undefined
+        const expectedKey = expected ? (expected.remote ? remoteColorKey(expected.label) : expected.label) : undefined
+        const handoff = Boolean(expected && tip && expectedKey !== tipKey)
+        const color = handoff || !expected ? (tip ? tip.color : laneColor(commit.sha)) : expected.color
+        const remote = handoff || !expected ? (tip ? tip.remote : false) : expected.remote
+        const label = handoff || !expected ? (tip ? tip.name : undefined) : expected.label
+        const nodeTip = tip ? { name: tip.name, color: tip.color, remote: tip.remote } : undefined
 
         for (let index = 0; index < active.length; index += 1) {
           const state = active[index]
@@ -499,6 +552,7 @@ window.__ModuleLoader__.load({
           color,
           remote,
           label,
+          tip: nodeTip,
           merge,
           fork: (children.get(commit.sha) || 0) > 1,
           head: (commit.refs || []).some((ref) => ref.startsWith('HEAD')),
@@ -930,18 +984,44 @@ window.__ModuleLoader__.load({
             : ''
       const subject = commit.subject || t('commit.noSubject')
       const title = [commit.sha, `${commit.author} <${commit.email}>`, operation].filter(Boolean).join('\n')
+      const selectable = typeof props.onSelect === 'function'
+      const selected = Boolean(props.selected)
 
       return h(
         'li',
         {
-          className: 'gr-commit',
+          className: `gr-commit${selectable ? ' is-selectable' : ''}${selected ? ' is-selected' : ''}`,
           title,
+          style: props.rowColor ? { '--gr-row-color': props.rowColor } : undefined,
+          role: selectable ? 'button' : undefined,
+          tabIndex: selectable ? 0 : undefined,
+          'aria-current': selected ? 'true' : undefined,
           'aria-label': `${commit.short} ${subject}${operation ? `, ${operation}` : ''}`,
+          onClick: selectable ? () => props.onSelect(commit.sha) : undefined,
+          onKeyDown: selectable
+            ? (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  props.onSelect(commit.sha)
+                }
+              }
+            : undefined,
         },
         h(
           'div',
           { className: 'gr-commit-body' },
-          h('div', { className: 'gr-subject' }, subject),
+          h(
+            'div',
+            { className: 'gr-subject-line' },
+            node && node.tip
+              ? h(
+                  'span',
+                  { className: 'gr-tip', style: { borderColor: laneStroke(node.tip.color), color: laneStroke(node.tip.color) } },
+                  node.tip.name,
+                )
+              : null,
+            h('div', { className: 'gr-subject' }, subject),
+          ),
           h(
             'div',
             { className: 'gr-meta' },
@@ -1005,6 +1085,7 @@ window.__ModuleLoader__.load({
 
     function GitrailBody(props) {
       const sessionId = props.sessionId
+      const openPanel = props.openPanel
       const translate = props.t
       const t = (key) => {
         if (typeof translate !== 'function') return key
@@ -1233,6 +1314,19 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
+          openPanel
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'gr-refresh',
+                  onClick: openPanel,
+                  title: t('action.openPanel'),
+                  'aria-label': t('action.openPanel'),
+                },
+                h(ExpandGlyph),
+              )
+            : null,
           h(
             'button',
             {
@@ -1260,6 +1354,306 @@ window.__ModuleLoader__.load({
               repo.head ? h('code', { className: 'gr-sha', title: repo.head }, repo.head) : null,
             )
           : null,
+      )
+    }
+
+    function GitrailPage(props) {
+      const t = typeof props.t === 'function' ? props.t : (key) => key
+      const sessions = props.sessions
+      const subscribe = React.useCallback(
+        (callback) => {
+          if (!sessions || !sessions.list || typeof sessions.list.subscribe !== 'function') return () => {}
+          return sessions.list.subscribe(callback)
+        },
+        [sessions],
+      )
+      const getSnapshot = React.useCallback(
+        () => (sessions && sessions.list ? sessions.list.getSnapshot() : null),
+        [sessions],
+      )
+      const list = React.useSyncExternalStore(subscribe, getSnapshot, () => null)
+      const byId = list && list.byId ? list.byId : {}
+      const ids = list && Array.isArray(list.ids) ? list.ids : Object.keys(byId)
+      const sessionId =
+        ids.find((id) => (byId[id] && byId[id].retainedBy && byId[id].retainedBy.mainView) > 0) || ids[0]
+
+      const [scope, setScope] = React.useState({ kind: 'all' })
+      const [nonce, setNonce] = React.useState(0)
+      const [selectedSha, setSelectedSha] = React.useState(null)
+      const [notice, setNotice] = React.useState(null)
+      const state = useRepo(sessionId, scope, nonce)
+      const repo = state.data
+      const loading = state.status === 'loading'
+      const graph = React.useMemo(() => {
+        if (!repo || !Array.isArray(repo.commits) || repo.commits.length === 0) return null
+        return layoutGraph(repo.commits, repo.branches, { rowHeight: 64, laneGap: 18, pad: 16 })
+      }, [repo])
+      const nodeBySha = graph ? new Map(graph.nodes.map((node) => [node.sha, node])) : null
+      const commits = repo && Array.isArray(repo.commits) ? repo.commits : []
+      const selectedCommit = selectedSha ? commits.find((commit) => commit.sha === selectedSha) : undefined
+      const selectedNode = selectedSha && nodeBySha ? nodeBySha.get(selectedSha) : undefined
+      const refresh = () => {
+        setNotice(null)
+        setNonce((value) => value + 1)
+      }
+
+      const sessionRef = React.useRef(sessionId)
+      React.useEffect(() => {
+        if (sessionRef.current === sessionId) return
+        sessionRef.current = sessionId
+        setScope({ kind: 'all' })
+        setSelectedSha(null)
+        setNotice(null)
+      }, [sessionId])
+
+      React.useEffect(() => {
+        if (!repo || !Array.isArray(repo.commits) || repo.commits.length === 0) {
+          setSelectedSha(null)
+          return
+        }
+        setSelectedSha((previous) =>
+          repo.commits.some((commit) => commit.sha === previous) ? previous : repo.commits[0].sha,
+        )
+      }, [repo])
+
+      React.useEffect(() => {
+        if (!state.error) return
+        const code = state.error.code
+        if (
+          (code === 'git/unknown-ref' || code === 'request/bad-ref') &&
+          scope.kind === 'branch' &&
+          scope.ref !== 'HEAD'
+        ) {
+          setNotice(t('scope.missing'))
+          setScope({ kind: 'all' })
+        }
+      }, [state.error, scope.kind, scope.ref])
+
+      const branchLabel = repo ? (repo.detached ? t('meta.detached') : repo.branch || t('meta.detached')) : t('panel.label')
+
+      let main
+      if (!sessionId) {
+        main = h(Notice, { title: t('page.empty') })
+      } else if (loading && !repo) {
+        main = h(Skeleton)
+      } else if (state.status === 'error') {
+        main = h(
+          'div',
+          { className: 'gr-error', role: 'alert' },
+          h('div', { className: 'gr-error-code' }, state.error.code),
+          h('div', { className: 'gr-error-text' }, errorText(t, state.error)),
+          h('button', { type: 'button', className: 'gr-text-button', onClick: refresh }, t('action.retry')),
+        )
+      } else if (repo) {
+        const operation = selectedNode && selectedNode.merge
+          ? selectedNode.mergeTarget && selectedNode.mergeSource
+            ? `${t('graph.merge')}: ${selectedNode.mergeTarget} ← ${selectedNode.mergeSource}`
+            : `${t('graph.merge')} (${selectedCommit ? (selectedCommit.parents || []).length : 0})`
+          : selectedNode && selectedNode.fork
+            ? t('graph.fork')
+            : ''
+        const parents = selectedCommit && Array.isArray(selectedCommit.parents) ? selectedCommit.parents : []
+        const refs = selectedCommit && Array.isArray(selectedCommit.refs) ? selectedCommit.refs : []
+
+        main = [
+          notice !== null ? h('div', { className: 'gr-inline-notice', key: 'notice' }, notice) : null,
+          h(
+            'div',
+            { className: 'gr-section-head', key: 'heading' },
+            h('span', null, t('page.title')),
+            h('span', { className: 'gr-count' }, String(commits.length)),
+          ),
+          h(GraphLegend, { key: 'legend', legend: graph ? graph.legend : [], t }),
+          commits.length === 0
+            ? h(Notice, {
+                key: 'empty',
+                title: repo.unborn ? t('state.unborn') : scope.kind === 'all' ? t('scope.emptyAll') : t('scope.emptyBranch'),
+                hint: repo.unborn ? t('state.unbornHint') : undefined,
+              })
+            : h(
+                'div',
+                {
+                  key: 'graph',
+                  className: 'gr-graph-wrap',
+                  style: graph ? { '--gr-graph-width': `${graph.width + 10}px` } : undefined,
+                },
+                graph ? h(GraphSvg, { graph }) : null,
+                h(
+                  'ol',
+                  { className: 'gr-commits' },
+                  commits.map((commit) => {
+                    const node = nodeBySha ? nodeBySha.get(commit.sha) : undefined
+                    return h(CommitRow, {
+                      key: commit.sha,
+                      commit,
+                      t,
+                      node,
+                      selected: commit.sha === selectedSha,
+                      rowColor: node ? laneStroke(node.color) : undefined,
+                      onSelect: setSelectedSha,
+                    })
+                  }),
+                ),
+              ),
+        ]
+
+        return h(
+          'div',
+          { className: 'gr-page' },
+          h('style', { 'data-plugin': ID }, CSS),
+          h(
+            'header',
+            { className: 'gr-page-head' },
+            h(
+              'div',
+              { className: 'gr-page-brand' },
+              h('span', { className: 'gr-page-logo' }, h(RailGlyph, { size: 18 })),
+              h(
+                'div',
+                { className: 'gr-page-titles' },
+                h('span', { className: 'gr-page-name' }, repo.name || t('panel.label')),
+                h('span', { className: 'gr-page-path', title: repo.root }, repo.root),
+              ),
+            ),
+            h(
+              'div',
+              { className: 'gr-page-tools' },
+              h(
+                'span',
+                { className: 'gr-branch-chip', title: repo.upstream || '' },
+                h('span', { className: 'gr-chip-dot', 'aria-hidden': true }),
+                branchLabel,
+              ),
+              repo.changes > 0
+                ? h('span', { className: 'gr-badge is-warn' }, `${repo.changes} ${t('meta.changes')}`)
+                : null,
+              h(ScopeMenu, {
+                t,
+                repo,
+                scope,
+                onChange: (next) => {
+                  setNotice(null)
+                  setScope(next)
+                },
+              }),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: `gr-refresh${loading ? ' is-busy' : ''}`,
+                  onClick: refresh,
+                  disabled: loading || !sessionId,
+                  title: t('action.refresh'),
+                  'aria-label': t('action.refresh'),
+                },
+                h(RefreshGlyph),
+              ),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'gr-page-body' },
+            h('main', { className: 'gr-page-main' }, main),
+            h(
+              'aside',
+              { className: 'gr-page-detail' },
+              h('div', { className: 'gr-detail-head' }, t('page.detail')),
+              selectedCommit
+                ? [
+                    h('h2', { className: 'gr-detail-subject', key: 'subject' }, selectedCommit.subject || t('commit.noSubject')),
+                    operation ? h('div', { className: 'gr-detail-op', key: 'op' }, operation) : null,
+                    h(
+                      'dl',
+                      { className: 'gr-detail-grid', key: 'meta' },
+                      h('dt', { className: 'gr-detail-label' }, t('page.sha')),
+                      h('dd', { className: 'gr-detail-value' }, h('code', null, selectedCommit.sha)),
+                      h('dt', { className: 'gr-detail-label' }, t('page.author')),
+                      h('dd', { className: 'gr-detail-value' }, `${selectedCommit.author} <${selectedCommit.email}>`),
+                      h('dt', { className: 'gr-detail-label' }, t('page.date')),
+                      h('dd', { className: 'gr-detail-value' }, formatFullDate(selectedCommit.date)),
+                      h('dt', { className: 'gr-detail-label' }, t('page.parents')),
+                      h(
+                        'dd',
+                        { className: 'gr-detail-value' },
+                        parents.length > 0
+                          ? parents.map((parent) =>
+                              h('code', { key: parent, title: parent, style: { marginRight: '6px' } }, parent.slice(0, 7)),
+                            )
+                          : '—',
+                      ),
+                      h('dt', { className: 'gr-detail-label' }, t('page.refs')),
+                      h(
+                        'dd',
+                        { className: 'gr-detail-value' },
+                        refs.length > 0
+                          ? h(
+                              'span',
+                              { className: 'gr-detail-refs' },
+                              refs.map((ref) =>
+                                h(
+                                  'span',
+                                  { key: ref, className: `gr-ref${ref.startsWith('tag:') ? ' is-tag' : ''}`, title: ref },
+                                  prettyRef(ref),
+                                ),
+                              ),
+                            )
+                          : '—',
+                      ),
+                    ),
+                    h('div', { className: 'gr-detail-note', key: 'note' }, t('page.diffLater')),
+                  ]
+                : h('div', { className: 'gr-detail-empty' }, t('page.selectCommit')),
+            ),
+          ),
+        )
+      }
+
+      return h(
+        'div',
+        { className: 'gr-page' },
+        h('style', { 'data-plugin': ID }, CSS),
+        h(
+          'header',
+          { className: 'gr-page-head' },
+          h(
+            'div',
+            { className: 'gr-page-brand' },
+            h('span', { className: 'gr-page-logo' }, h(RailGlyph, { size: 18 })),
+            h(
+              'div',
+              { className: 'gr-page-titles' },
+              h('span', { className: 'gr-page-name' }, t('panel.label')),
+              h('span', { className: 'gr-page-path' }, t('guide.description')),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'gr-page-tools' },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: `gr-refresh${loading ? ' is-busy' : ''}`,
+                onClick: refresh,
+                disabled: loading || !sessionId,
+                title: t('action.refresh'),
+                'aria-label': t('action.refresh'),
+              },
+              h(RefreshGlyph),
+            ),
+          ),
+        ),
+        h(
+          'div',
+          { className: 'gr-page-body' },
+          h('main', { className: 'gr-page-main' }, main),
+          h(
+            'aside',
+            { className: 'gr-page-detail' },
+            h('div', { className: 'gr-detail-head' }, t('page.detail')),
+            h('div', { className: 'gr-detail-empty' }, t('page.selectCommit')),
+          ),
+        ),
       )
     }
 
@@ -1781,6 +2175,28 @@ window.__ModuleLoader__.load({
   gap: 2px;
   justify-content: center;
 }
+.gr-subject-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+.gr-subject-line .gr-subject {
+  flex: 1;
+  min-width: 0;
+}
+.gr-tip {
+  flex: none;
+  max-width: 9em;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 9px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .gr-subject {
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -1922,6 +2338,194 @@ window.__ModuleLoader__.load({
 .gr-foot .gr-sha {
   flex: none;
 }
+.gr-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  padding-top: var(--dsh-frame-top-clearance, 48px);
+  color: var(--dsw-alias-label-primary);
+  background: transparent;
+  --gr-lane-1: #3b82f6;
+  --gr-lane-2: #2ea043;
+  --gr-lane-3: #a371f7;
+  --gr-lane-4: #c69026;
+  --gr-lane-5: #db61a2;
+  --gr-lane-6: #2aa7b8;
+  --gr-lane-7: #d4712b;
+  --gr-lane-8: #cf5b5b;
+}
+.gr-page-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  flex: none;
+}
+.gr-page-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+.gr-page-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-bg-layer-1);
+  border: 1px solid var(--dsw-alias-border-l1);
+  flex: none;
+}
+.gr-page-titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.gr-page-name {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gr-page-path {
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gr-page-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+.gr-page-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.gr-page-main {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 14px 24px 24px;
+}
+.gr-page .gr-section-head {
+  margin-bottom: 6px;
+}
+.gr-page .gr-commits {
+  gap: 2px;
+}
+.gr-page .gr-commit {
+  padding-right: 12px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--gr-row-color, transparent) 8%, transparent);
+}
+.gr-page .gr-commit.is-selectable {
+  cursor: pointer;
+}
+.gr-page .gr-commit.is-selectable:hover {
+  background: color-mix(in srgb, var(--gr-row-color, transparent) 13%, transparent);
+}
+.gr-page .gr-commit.is-selected {
+  background: color-mix(in srgb, var(--gr-row-color, transparent) 17%, transparent);
+  box-shadow: inset 3px 0 0 var(--gr-row-color, var(--dsw-alias-brand-primary));
+}
+.gr-page .gr-commit:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -2px;
+}
+.gr-page .gr-graph-wrap {
+  padding-top: 4px;
+}
+.gr-page-detail {
+  width: 330px;
+  flex: none;
+  overflow: auto;
+  padding: 16px 18px;
+  border-left: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+}
+.gr-detail-head {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--dsw-alias-label-secondary);
+  margin-bottom: 12px;
+}
+.gr-detail-subject {
+  margin: 0 0 12px;
+  font-size: 15px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.gr-detail-op {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+}
+.gr-detail-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 0;
+  font-size: 11px;
+}
+.gr-detail-label {
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}
+.gr-detail-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.gr-detail-value code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+}
+.gr-detail-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.gr-detail-note {
+  margin-top: 16px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary);
+}
+.gr-detail-empty {
+  margin-top: 24px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary);
+}
+@media (max-width: 900px) {
+  .gr-page-body {
+    flex-direction: column;
+  }
+  .gr-page-detail {
+    width: auto;
+    max-height: 42%;
+    border-left: 0;
+    border-top: 1px solid var(--dsw-alias-border-l1);
+  }
+}
 `
 
     /* ================= plugin ================= */
@@ -1930,6 +2534,8 @@ window.__ModuleLoader__.load({
 
     function apply(ctx) {
       const t = ctx.locale.bind(NS)
+      const sessions = ctx.get('sessions')
+      const layout = ctx.get('layout')
 
       ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'gitrail: dictionaries')
 
@@ -1961,11 +2567,47 @@ window.__ModuleLoader__.load({
                 name: 'sidebar.right.pane.tab',
                 key: ID,
                 locale: NS,
+                inject: () => ({
+                  openPanel: typeof layout?.selectPanel === 'function' ? () => layout.selectPanel(PANEL_ID) : undefined,
+                }),
               },
               GitrailBody,
             ),
           ),
         'gitrail: tab body',
+      )
+
+      ctx.effect(
+        () =>
+          ctx.slots.inject('main', () =>
+            ctx.slots.register(
+              {
+                name: 'main',
+                key: PANEL_ID,
+                locale: NS,
+                inject: () => ({ sessions }),
+              },
+              GitrailPage,
+            ),
+          ),
+        'gitrail: main panel',
+      )
+
+      ctx.effect(
+        () =>
+          ctx.slots.inject('sidebar.panellist', () =>
+            ctx.slots.register(
+              {
+                name: 'sidebar.panellist',
+                id: PANEL_ID,
+                order: 20,
+                label: () => t('panel.label'),
+                locale: NS,
+              },
+              RailGlyph,
+            ),
+          ),
+        'gitrail: panel entry',
       )
     }
 

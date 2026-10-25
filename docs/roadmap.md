@@ -7,7 +7,7 @@
 - [x] 只读 git 适配器：分支、当前分支、dirty、ahead/behind、最近 80 条提交
 - [x] Client：`gitrail` tab type + guide entry + `sidebar.right.pane.tab` body
 - [x] 错误态、空仓库、detached HEAD、刷新
-- [x] `npm run check`、30 项 `npm test`
+- [x] `npm run check`、31 项 `npm test`
 
 **已完成**：desktop profile 本机 preview 安装与暗色视觉验证；亮色主题、窄栏待检查。
 
@@ -22,6 +22,7 @@
 - [x] **彩色提交图**：纯函数 lane 布局、分支色、分叉/合并/HEAD 节点；无第三方依赖 + 单测。详见 [plans/branch-graph.md](plans/branch-graph.md)。
 - [x] **合并方向**：第一 parent 实线（迁入），第二及以后 parent 虚线（迁出）；能从 lane/ref 推断时显示 `main ← feature`。
 - [x] 图例、颜色稳定性和灰度可读；轨道使用插件自有分类色板（亮/暗都校验），其余 UI 仍用 `--dsw-alias-*`。
+- [x] **全宽 Gitrail Graph 主面板**：`sidebar.panellist` 入口 + root `main` 页面，左侧图谱、右侧提交信息；分支 tip 交接颜色/标签，行底色按 lane 色。
 - [ ] refs 装饰（分支 / tag / remote）与 lane 对齐，过长截断；固定行高保证 SVG 对齐。
 - [ ] 窗口重新聚焦 / tab 重新可见时静默刷新；保留手动刷新。
 - [ ] 长列表：虚拟化或分段加载（先测 500 条提交的渲染成本）。

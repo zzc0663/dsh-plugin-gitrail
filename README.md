@@ -9,15 +9,19 @@
 - **单包、无构建**：宿主编排在 `index.js` / `lib/git.js`，浏览器半边是纯 JS 的 `client.js`，没有 JSX、打包器或运行时依赖。
 - **贴着宿主长**：右侧栏 tab type + guide entry，使用 `--dsw-alias-*` 主题令牌，亮/暗主题一致。
 
+![Gitrail 全宽图谱](docs/assets/gitrail-page.png)
+
+*全宽 Gitrail Graph：左侧彩色图谱 + 右侧提交信息；分支 tip 用颜色/标签标注。*
+
 ![Gitrail 右侧栏](docs/assets/gitrail-sidebar.png)
 
-*右侧栏中的 Gitrail（默认显示所有分支，彩色 lane + 可折叠的「颜色 = 分支」图例）。*
+*右侧栏快捷视图（默认所有分支，可折叠「颜色 = 分支」图例）。*
 
 ![Gitrail 提交范围下拉](docs/assets/gitrail-scope-menu.png)
 
-*提交范围下拉：所有分支 / 当前分支 / 单个本地或远程分支；分支行也可以直接点选。*
+*提交范围下拉：所有分支 / 当前分支 / 单个本地或远程分支。*
 
-> 状态：**v0.3.0 / early**。已通过 `npm run check` 和 30 项 `npm test`，并在 desktop profile 的右侧栏打开验证（暗色主题，含范围切换、彩色 lane、图例与分支点选）；亮色主题与窄栏表现仍待检查。
+> 状态：**v0.4.0 / early**。已通过 `npm run check` 和 31 项 `npm test`，并在 desktop profile 打开全宽图谱与右侧栏视图验证（暗色主题）；亮色主题与窄栏表现仍待检查。
 
 ---
 
@@ -36,17 +40,18 @@
 
 ---
 
-## 现在能做什么（v0.3）
+## 现在能做什么（v0.4）
 
-在右侧栏的 guide 里打开「仓库」后：
+左侧栏的 **Gitrail 图谱** 打开全宽页面：左侧彩色图谱 + 右侧提交信息；右侧栏的「仓库」保留为快捷视图。
 
+- **全宽图谱页**：分支 tip 在页面顶部用 pill 标注；共享历史到达另一个分支 tip 时，lane 会交接给该分支的颜色（例如 `develop` 在 `main` 的 tip 处变成 `main` 色），因此所有分支不再只有一种颜色。
+- 提交行按 lane 色淡染；点击行选中，右侧显示提交 SHA、作者、时间、父提交、引用；merge/fork 行显示操作徽标与方向。
 - 默认显示**所有本地 + 远程跟踪分支**的提交；提交区下拉可切换「所有分支 / 当前分支 / 单个本地或远程分支」，分支行也可以直接点选。
 - **彩色提交图**：每条分支一条 lane 和稳定颜色；分叉点、合并节点、HEAD 光晕、远程分支虚线都能直接看出。
 - **合并方向**：第一 parent 是迁入目标（实线），第二及以后 parent 是迁出源（虚线 + 来源色）；tooltip 在能推断时显示 `合并: main ← feature`。
 - 合并行和分叉行在 meta 里有「合并」/「分叉点」徽标，边框取 lane 颜色；不只靠图形形状区分。
 - 显示仓库名、绝对路径、当前分支（含 detached HEAD / 空仓库状态）。
 - 显示工作区改动数、相对上游的 ahead / behind。
-- 列出本地分支（当前分支高亮、显示上游与短 SHA），远程分支折叠在次级区域。
 - 列出最近 80 条提交：短 SHA、作者、相对时间、refs（分支 / tag）、最多两行标题；完整标题在 tooltip。
 - 可折叠的「颜色 = 分支」图例；固定 64px 行高保证 SVG 轨道与提交行对齐。
 - 手动刷新；读取中保留旧数据，不闪空屏。
@@ -74,9 +79,10 @@ target: D:\Documents\deepseek\dsh-plugin-gitrail
 ### 安装后验证
 
 1. 打开一个位于 git 仓库中的会话。
-2. 右侧栏顶部的 `+` / guide 中应出现「仓库」卡片。
-3. 打开后应看到所有分支的提交列表；用「最近提交」旁的下拉切换单分支，点分支行也可以切换。
-4. 若面板报错，先看错误码：`git/not-a-repo`、`git/unavailable`、`session/no-cwd` 分别对应不同的环境问题。
+2. 左侧栏的全局面板列表应出现「Gitrail 图谱」；打开后是左侧彩色图谱 + 右侧提交信息。
+3. 右侧栏顶部的 `+` / guide 中应出现「仓库」卡片；它的标题栏有「全宽打开图谱」按钮。
+4. 两个视图都应显示所有分支的提交；用范围下拉切换单分支，点分支行也可以切换。
+5. 若面板报错，先看错误码：`git/not-a-repo`、`git/unavailable`、`session/no-cwd` 分别对应不同的环境问题。
 
 > 本仓库只提供 bundle，不自动修改 profile。不要手工复制到 `$DSH_HOME` 或编辑 profile 的 `cordis.patch.yml`，除非你明确知道自己在做什么。
 
@@ -88,7 +94,7 @@ target: D:\Documents\deepseek\dsh-plugin-gitrail
 
 ```powershell
 npm run check   # node --check + 清单/本地化/图标一致性
-npm test        # 30 项测试：解析器、路由、范围校验、图形布局与临时 git 仓库
+npm test        # 31 项测试：解析器、路由、范围校验、图形布局与临时 git 仓库
 ```
 
 | 路径 | 职责 |

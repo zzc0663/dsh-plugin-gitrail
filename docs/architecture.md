@@ -9,15 +9,19 @@ DSH Web 的右侧栏（`@deepseek-ai/dsh-client-ui-sidebar-right`）是**按 Ses
 - 同一个 id 可注册 chip 标题 `sidebar.right.pane.tab.title`（可选）；
 - `guide` 数组让类型出现在右侧栏的 guide 页，用户从那里打开它。
 
-Gitrail 选择这条路径，而不是：
+Gitrail 提供两个表面：
+
+- **右侧栏 tab type**（快捷视图）：`ctx.sidebarRightTabs.register(definition)` 声明类型；body 注册在 keyed 槽位 `sidebar.right.pane.tab`，key 为 `definition.id`；`guide` 数组让类型出现在右侧栏 guide 页。
+- **全宽 main panel**（完整图谱）：`sidebar.panellist` 注册入口，同一个 id 注册根级 `main` keyed 槽位；页面用客户端 `sessions` 服务找到当前 Session，左侧画彩色图谱、右侧显示提交信息。图谱需要宽度，所以没有把它硬塞进窄侧栏。
+
+不采用的其他路径：
 
 | 备选 | 不选的原因 |
 |---|---|
-| `sidebar.panellist` + 根级 `main` 面板 | 那是全局页面，不随 Session 切换，也不共享右侧栏的布局、分屏与恢复 |
 | `conversation.composer.dock` / `shell.overlay` | 装饰性槽位，不合适承载可滚动、可并排的仓库视图 |
 | 宿主返回 HTML + iframe | 拿不到宿主主题令牌、语言与布局，违反 DSH UI 约定 |
 
-页面类型用 `priority: 'extension'`，kind 为 `gitrail`，id 与包名一致：`dsh-plugin-gitrail`。id 同时是 body 槽位的 key，因此类型、body、chip 标题天然对齐。
+右侧栏页面类型用 `priority: 'extension'`，kind 为 `gitrail`，id 与包名一致：`dsh-plugin-gitrail`。全宽面板 id 为 `gitrail-graph`，入口和 `main` key 共用它。
 
 ## 2. 两半与数据流
 
@@ -30,10 +34,18 @@ Gitrail 选择这条路径，而不是：
                        └─ lib/git.js：git -C <cwd> ...（只读、参数数组）
                             └─ JSON { ok, repo }
                                  └─ GitrailBody 渲染分支 / 提交 / 状态
+
+全宽入口（同一个 bundle）
+sidebar.panellist「Gitrail 图谱」
+   └─ layout.selectPanel('gitrail-graph')
+        └─ 根级 main keyed slot → GitrailPage
+             └─ 客户端 sessions 服务选当前 Session
+                  └─ 同一个 GET /dsh-plugin-gitrail/repo
+                       └─ 左侧 SVG 图谱 + 右侧提交信息
 ```
 
 - **Host**（`index.js` + `lib/git.js`）拥有文件系统与 git。浏览器永远不提交路径。
-- **Client**（`client.js`）只拥有视图与一次 `fetch`；不 import 任何 DSH Client 包，只 `require('react')`。
+- **Client**（`client.js`）只拥有视图与一次 `fetch`；不 import 任何 DSH Client 包，只 `require('react')`。两个表面共用 `layoutGraph()`、`useRepo()` 与 `GraphSvg`。
 - 没有共享状态、没有后台轮询、没有 socket。刷新是显式动作。
 
 ## 3. HTTP 契约
