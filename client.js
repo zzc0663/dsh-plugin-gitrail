@@ -2267,7 +2267,7 @@ window.__ModuleLoader__.load({
         const preferred =
           selectionSnapshot && selectionSnapshot.sessionId === sessionId ? selectionSnapshot.sha : null
         setSelectedSha((previous) => {
-          if (preferred && repo.commits.some((commit) => commit.sha === preferred)) return preferred
+          if (preferred) return preferred
           return repo.commits.some((commit) => commit.sha === previous) ? previous : repo.commits[0].sha
         })
       }, [repo, selectionSnapshot, sessionId])
