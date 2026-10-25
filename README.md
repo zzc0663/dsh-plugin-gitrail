@@ -9,7 +9,11 @@
 - **单包、无构建**：宿主编排在 `index.js` / `lib/git.js`，浏览器半边是纯 JS 的 `client.js`，没有 JSX、打包器或运行时依赖。
 - **贴着宿主长**：右侧栏 tab type + guide entry，使用 `--dsw-alias-*` 主题令牌，亮/暗主题一致。
 
-> 状态：**v0.1.0 / early**。仓库骨架与第一条纵向切片已完成；已通过 `npm run check` 和 17 项 `npm test`，但**尚未在本机 GUI 中安装并做视觉验证**。
+![Gitrail 右侧栏](docs/assets/gitrail-sidebar.png)
+
+*右侧栏中的 Gitrail（本机 preview，暗色主题）。*
+
+> 状态：**v0.1.0 / early**。仓库骨架与第一条纵向切片已完成；已通过 `npm run check` 和 17 项 `npm test`，并已在 desktop profile 的右侧栏打开验证（暗色主题）；亮色主题与窄栏表现仍待检查。
 
 ---
 
