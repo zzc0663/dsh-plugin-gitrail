@@ -11,7 +11,11 @@
 
 ![Gitrail 右侧栏](docs/assets/gitrail-sidebar.png)
 
-*右侧栏中的 Gitrail（本机 preview，暗色主题）。*
+*右侧栏中的 Gitrail（默认显示所有分支）。*
+
+![Gitrail 提交范围下拉](docs/assets/gitrail-scope-menu.png)
+
+*提交范围下拉：所有分支 / 当前分支 / 单个本地或远程分支；分支行也可以直接点选。*
 
 > 状态：**v0.2.0 / early**。已通过 `npm run check` 和 21 项 `npm test`，并在 desktop profile 的右侧栏打开验证（暗色主题，含范围切换与分支点选）；亮色主题与窄栏表现仍待检查。
 

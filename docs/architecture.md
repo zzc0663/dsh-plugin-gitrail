@@ -153,6 +153,8 @@ Gitrail 选择这条路径，而不是：
 - 不向 `document.body` 追加节点；不读取其他插件的 DOM。
 - 文案走 `ctx.locale`（`gitrail` 命名空间），相对时间用 `Intl.RelativeTimeFormat`。
 - 刷新按钮有 `aria-label`、`title`，忙碌时 `aria-busy`；尊重 `prefers-reduced-motion`。
+- 提交范围默认「所有分支」；下拉是 `role="listbox"`，支持方向键 / Home / End / Enter / Escape，分支行同时可点选（`role="button"` + `aria-current`）。
+- 客户端只发送 `scope` / `ref`，不发送路径；Host 用 `for-each-ref` 结果做白名单，再拼 `git log` 参数。
 
 ## 7. 文件地图
 
