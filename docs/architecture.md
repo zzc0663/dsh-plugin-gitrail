@@ -203,6 +203,7 @@ sidebar.panellist「Gitrail 图谱」
 - **分支 rail**：选中分支 tip 是另一选中 tip 的祖先时（`main` 落后 `develop`），较新分支的线性链整体移到新 lane，旧 tip 到链首的边保留为斜线，表达「分支在这里创建」。
 - **共享选中**：`apply()` 创建插件级 selection store（`{sessionId, sha}`），右侧栏与全宽页都通过 slot `inject` 读取；侧栏点击先 `selection.select()` 再 `layout.selectPanel('gitrail-graph')`。全宽页详情通过 `/commit` 拉取 message / 文件 / diff。
 - **视图状态**：另一个插件级 view store 按 session 保存本地/远程筛选（`localStorage`，最多 20 个 session）；两个视图通过 `useSyncExternalStore` 共享。搜索为本地状态，搜索时请求 500 条并隐藏图谱，使用平铺列表。
+- **Diff 视图**：客户端把 patch 按 `diff --git` 分节并映射到 `files`；文件行只切换当前节，不依赖 `sidebarRight`。外部 `↗` 仍走 `dsh-resource://file/...`；SHA 支持复制。
 - **刷新**：窗口 focus / `visibilitychange` 触发 800ms 防抖的静默刷新；行高固定 64px，并用 `content-visibility: auto` 降低长列表渲染成本。
 
 ## 7. 文件地图

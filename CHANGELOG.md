@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 semantic versioning.
 
+## [0.9.0] — 2026-10-25
+
+### Added
+
+- Per-file diff navigation: clicking a row in the changed-files list shows only
+  that file's section, with an active row and an "All files" reset. No longer
+  depends on opening the sidebar resource.
+- Patch parser keeps `diff --git` sections and maps them to the `files` list, so
+  binary / rename / multi-file commits stay readable.
+- Copy-SHA action in the commit detail header.
+- The file row keeps a separate external-open button for `dsh-resource://file/…`.
+
 ## [0.8.0] — 2026-10-25
 
 ### Added

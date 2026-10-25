@@ -296,3 +296,23 @@ test('the view store shares and de-duplicates filters per session', () => {
   assert.equal(changes, 2)
   off()
 })
+
+test('patch sections keep file paths and line text', () => {
+  const patch = [
+    'diff --git a/a.txt b/a.txt',
+    '--- a/a.txt',
+    '+++ b/a.txt',
+    '@@ -1 +1 @@',
+    '-old',
+    '+new',
+    'diff --git a/logo.bin b/logo.bin',
+    'Binary files a/logo.bin and b/logo.bin differ',
+  ].join('\n')
+
+  const sections = plugin.__parsePatch(patch, [{ path: 'a.txt' }, { path: 'logo.bin' }])
+  assert.equal(sections.length, 2)
+  assert.equal(sections[0].path, 'a.txt')
+  assert.match(sections[0].text, /\+new/)
+  assert.equal(sections[1].path, 'logo.bin')
+  assert.match(sections[1].text, /Binary files/)
+})

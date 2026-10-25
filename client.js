@@ -83,6 +83,11 @@ window.__ModuleLoader__.load({
       'page.diff': 'diff',
       'page.diffTruncated': 'diff 已截断（512 KiB）',
       'page.binary': '二进制',
+      'page.allFiles': '全部文件',
+      'page.binaryDiff': '该文件没有文本 diff（二进制或仅模式变更）。',
+      'page.openFile': '在侧栏打开文件',
+      'action.copySha': '复制',
+      'action.copied': '已复制',
       'page.loadingDetail': '正在读取提交详情…',
       'error.commitNotFound': '提交不存在或已被移除。',
       'action.openPanel': '全宽打开图谱',
@@ -162,6 +167,11 @@ window.__ModuleLoader__.load({
       'page.diff': 'diff',
       'page.diffTruncated': 'diff truncated (512 KiB)',
       'page.binary': 'binary',
+      'page.allFiles': 'All files',
+      'page.binaryDiff': 'No text diff for this file (binary or mode-only change).',
+      'page.openFile': 'Open file in sidebar',
+      'action.copySha': 'Copy',
+      'action.copied': 'Copied',
       'page.loadingDetail': 'Reading commit…',
       'error.commitNotFound': 'This commit no longer exists.',
       'action.openPanel': 'Open full graph',
@@ -455,6 +465,50 @@ window.__ModuleLoader__.load({
         : { locals: next, remotes: filter ? filter.remotes : branchRefs(repo, true) }
     }
 
+    function parsePatch(patch, files) {
+      const source = String(patch || '')
+      if (source === '') return []
+      const lines = source.split(/\r?\n/)
+      const sections = []
+      let current = null
+      const flush = () => {
+        if (current && current.lines.length > 0) sections.push(current)
+        current = null
+      }
+      for (const line of lines) {
+        if (line.startsWith('diff --git ')) {
+          flush()
+          current = { header: line, lines: [line], path: null }
+        } else if (current) {
+          current.lines.push(line)
+        }
+      }
+      flush()
+      const strip = (value) => {
+        let path = value.trim()
+        if (path.startsWith('"') && path.endsWith('"')) {
+          try {
+            path = JSON.parse(path)
+          } catch {
+            path = path.slice(1, -1)
+          }
+        }
+        return path.replace(/^[ab]\//, '')
+      }
+      const fileList = Array.isArray(files) ? files : []
+      sections.forEach((section, index) => {
+        const plus = section.lines.find((line) => line.startsWith('+++ '))
+        const minus = section.lines.find((line) => line.startsWith('--- '))
+        let path = ''
+        if (plus && plus !== '+++ /dev/null') path = strip(plus.slice(4))
+        else if (minus && minus !== '--- /dev/null') path = strip(minus.slice(4))
+        if (path === '') path = fileList[index] ? fileList[index].path : ''
+        section.path = path
+        section.text = section.lines.join('\n')
+      })
+      return sections
+    }
+
     function commitMatches(commit, query) {
       const needle = String(query || '').trim().toLowerCase()
       if (needle === '') return true
@@ -581,21 +635,46 @@ window.__ModuleLoader__.load({
 
     function DiffView(props) {
       const patch = typeof props.patch === 'string' ? props.patch : ''
+      const sections = Array.isArray(props.sections) ? props.sections : []
       if (props.unavailable) return h('div', { className: 'gr-muted' }, props.t('page.patchUnavailable'))
-      if (patch === '') return null
-      const lines = patch.split(/\r?\n/)
+      if (patch === '' && sections.length === 0) return null
+
+      const selected = props.selected || null
+      const section = selected ? sections.find((item) => item.path === selected) : null
+      let lines = []
+      let empty = null
+      if (selected) {
+        if (section) lines = section.lines
+        else empty = props.t('page.binaryDiff')
+      } else if (sections.length > 0) {
+        lines = sections.flatMap((item) => item.lines)
+      } else {
+        lines = patch.split(/\r?\n/)
+      }
       const shown = lines.slice(0, 4000)
+
       return h(
         'div',
         { className: 'gr-diff-wrap' },
-        h('div', { className: 'gr-detail-section-head' }, props.t('page.diff')),
         h(
-          'pre',
-          { className: 'gr-diff' },
-          shown.map((line, index) =>
-            h('span', { key: index, className: `gr-diff-line ${diffLineClass(line)}` }, line || ' '),
-          ),
+          'div',
+          { className: 'gr-detail-section-head gr-diff-head' },
+          h('span', { className: 'gr-diff-title', title: selected || '' }, selected ? `${props.t('page.diff')} · ${selected}` : props.t('page.diff')),
+          selected
+            ? h('button', { type: 'button', className: 'gr-text-button', onClick: props.onClear }, props.t('page.allFiles'))
+            : null,
         ),
+        lines.length > 0
+          ? h(
+              'pre',
+              { className: 'gr-diff' },
+              shown.map((line, index) =>
+                h('span', { key: index, className: `gr-diff-line ${diffLineClass(line)}` }, line || ' '),
+              ),
+            )
+          : empty
+            ? h('div', { className: 'gr-muted' }, empty)
+            : null,
         props.truncated || lines.length > shown.length
           ? h('div', { className: 'gr-detail-note' }, props.t('page.diffTruncated'))
           : null,
@@ -613,19 +692,44 @@ window.__ModuleLoader__.load({
           file.binary ? props.t('page.binary') : `+${file.additions} −${file.deletions}`,
         ),
       ]
-      if (typeof props.onOpen === 'function') {
-        return h(
-          'button',
-          {
-            type: 'button',
-            className: 'gr-file-row',
-            onClick: props.onOpen,
-            title: file.oldPath ? `${file.oldPath} → ${file.path}` : file.path,
+      const external =
+        typeof props.onOpen === 'function'
+          ? h(
+              'button',
+              {
+                type: 'button',
+                className: 'gr-file-open',
+                title: props.t('page.openFile'),
+                'aria-label': props.t('page.openFile'),
+                onClick: (event) => {
+                  event.stopPropagation()
+                  props.onOpen()
+                },
+              },
+              '↗',
+            )
+          : null
+      return h(
+        'div',
+        {
+          className: `gr-file-row${props.selected ? ' is-active' : ''}`,
+          role: 'button',
+          tabIndex: 0,
+          title: label,
+          'aria-pressed': props.selected ? 'true' : undefined,
+          onClick: () => {
+            if (typeof props.onSelect === 'function') props.onSelect()
           },
-          content,
-        )
-      }
-      return h('div', { className: 'gr-file-row', title: label }, content)
+          onKeyDown: (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              if (typeof props.onSelect === 'function') props.onSelect()
+            }
+          },
+        },
+        content,
+        external,
+      )
     }
 
     const RELATIVE = (() => {
@@ -2189,6 +2293,8 @@ window.__ModuleLoader__.load({
       const [fallbackFilter, setFallbackFilter] = React.useState(null)
       const [nonce, setNonce] = React.useState(0)
       const [selectedSha, setSelectedSha] = React.useState(null)
+      const [selectedFile, setSelectedFile] = React.useState(null)
+      const [copied, setCopied] = React.useState(false)
       const [notice, setNotice] = React.useState(null)
       const [limit, setLimit] = React.useState(80)
       const [search, setSearch] = React.useState('')
@@ -2231,6 +2337,7 @@ window.__ModuleLoader__.load({
       const detailState = useCommitDetail(sessionId, selectedSha)
       const detail = detailState.data
       const detailCommit = detail && detail.commit ? detail.commit : null
+      const diffSections = React.useMemo(() => parsePatch(detail && detail.patch, detail && detail.files), [detail])
       const searching = search.trim() !== ''
       const graph = React.useMemo(() => {
         if (searching || !repo || !Array.isArray(repo.commits) || repo.commits.length === 0) return null
@@ -2282,6 +2389,17 @@ window.__ModuleLoader__.load({
         if (!matches.some((commit) => commit.sha === selectedSha)) setSelectedSha(matches[0].sha)
       }, [searching, search, commits, selectedSha])
 
+      React.useEffect(() => {
+        setSelectedFile(null)
+        setCopied(false)
+      }, [selectedSha])
+
+      React.useEffect(() => {
+        if (selectedFile && detail && Array.isArray(detail.files) && !detail.files.some((file) => file.path === selectedFile)) {
+          setSelectedFile(null)
+        }
+      }, [detail, selectedFile])
+
       const selectCommit = (sha) => {
         setSelectedSha(sha)
         if (selection && typeof selection.select === 'function') selection.select(sessionId, sha)
@@ -2330,6 +2448,27 @@ window.__ModuleLoader__.load({
         const authorName = detailCommit && detailCommit.author ? detailCommit.author.name : shownCommit ? shownCommit.author : ''
         const authorEmail = detailCommit && detailCommit.author ? detailCommit.author.email : shownCommit ? shownCommit.email : ''
         const authorDate = detailCommit && detailCommit.author ? detailCommit.author.date : shownCommit ? shownCommit.date : ''
+        const copySha = async (sha) => {
+          if (!sha) return
+          try {
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+              await navigator.clipboard.writeText(sha)
+            } else {
+              const area = document.createElement('textarea')
+              area.value = sha
+              area.style.position = 'fixed'
+              area.style.opacity = '0'
+              document.body.appendChild(area)
+              area.select()
+              document.execCommand('copy')
+              area.remove()
+            }
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1500)
+          } catch {
+            /* clipboard can be denied; the SHA stays selectable */
+          }
+        }
 
         main = [
           notice !== null ? h('div', { className: 'gr-inline-notice', key: 'notice' }, notice) : null,
@@ -2464,7 +2603,25 @@ window.__ModuleLoader__.load({
                       'dl',
                       { className: 'gr-detail-grid', key: 'meta' },
                       h('dt', { className: 'gr-detail-label' }, t('page.sha')),
-                      h('dd', { className: 'gr-detail-value' }, h('code', null, shownCommit.sha)),
+                      h(
+                        'dd',
+                        { className: 'gr-detail-value' },
+                        h(
+                          'span',
+                          { className: 'gr-detail-sha' },
+                          h('code', null, shownCommit.sha),
+                          h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'gr-copy',
+                              onClick: () => copySha(shownCommit.sha),
+                              title: t('action.copySha'),
+                            },
+                            copied ? t('action.copied') : t('action.copySha'),
+                          ),
+                        ),
+                      ),
                       h('dt', { className: 'gr-detail-label' }, t('page.author')),
                       h('dd', { className: 'gr-detail-value' }, `${authorName}${authorEmail ? ` <${authorEmail}>` : ''}`),
                       h('dt', { className: 'gr-detail-label' }, t('page.date')),
@@ -2527,6 +2684,8 @@ window.__ModuleLoader__.load({
                                 key: `${file.oldPath || ''}:${file.path}`,
                                 file,
                                 t,
+                                selected: file.path === selectedFile,
+                                onSelect: () => setSelectedFile((previous) => (previous === file.path ? null : file.path)),
                                 onOpen:
                                   openFile && typeof openFile === 'function'
                                     ? () =>
@@ -2561,6 +2720,9 @@ window.__ModuleLoader__.load({
                       ? h(DiffView, {
                           key: 'diff',
                           patch: detail.patch,
+                          sections: diffSections,
+                          selected: selectedFile,
+                          onClear: () => setSelectedFile(null),
                           truncated: detail.patchTruncated,
                           unavailable: detail.patchUnavailable,
                           t,
@@ -3556,6 +3718,28 @@ window.__ModuleLoader__.load({
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 10px;
 }
+.gr-detail-sha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.gr-copy {
+  appearance: none;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 9px;
+  line-height: 16px;
+  padding: 0 5px;
+  cursor: pointer;
+}
+.gr-copy:hover {
+  color: var(--dsw-alias-brand-primary);
+  border-color: var(--dsw-alias-brand-primary);
+}
 .gr-detail-refs {
   display: flex;
   flex-wrap: wrap;
@@ -3614,9 +3798,9 @@ window.__ModuleLoader__.load({
 }
 .gr-file-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   padding: 5px 8px;
   border: 0;
@@ -3624,12 +3808,28 @@ window.__ModuleLoader__.load({
   color: inherit;
   font: inherit;
   text-align: left;
-}
-button.gr-file-row {
   cursor: pointer;
 }
-button.gr-file-row:hover {
+.gr-file-row:hover,
+.gr-file-row.is-active {
   background: var(--dsw-alias-bg-layer-2);
+}
+.gr-file-row.is-active {
+  box-shadow: inset 2px 0 0 var(--dsw-alias-brand-primary);
+}
+.gr-file-open {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.gr-file-open:hover {
+  color: var(--dsw-alias-brand-primary);
 }
 .gr-file-row + .gr-file-row {
   border-top: 1px solid var(--dsw-alias-border-l1);
@@ -3651,6 +3851,12 @@ button.gr-file-row:hover {
 }
 .gr-diff-wrap {
   margin-top: 16px;
+}
+.gr-diff-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .gr-diff {
   margin: 0;
@@ -3799,6 +4005,7 @@ button.gr-file-row:hover {
       plugin.__createViewStore = createViewStore
       plugin.__branchColorIndex = branchColorIndex
       plugin.__commitMatches = commitMatches
+      plugin.__parsePatch = parsePatch
       plugin.__fileAddressFor = fileAddressFor
     }
     return plugin
