@@ -13,6 +13,10 @@
 
 *全宽 Gitrail Graph：左侧彩色图谱 + 右侧提交信息；分支 tip 用颜色/标签标注。*
 
+![分支斜向接入](docs/assets/gitrail-branch-rail.png)
+
+*本仓库的 `main` 落后于 `develop`：`main` 的 tip 留在左侧 lane，`develop` 单独占右侧 lane，斜线在 `main` 处向上接入，而不是一条直线。*
+
 ![Gitrail 右侧栏](docs/assets/gitrail-sidebar.png)
 
 *右侧栏快捷视图：远程分支默认展开，分支圆点与 lane 同色。*
