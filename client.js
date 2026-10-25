@@ -1642,7 +1642,7 @@ window.__ModuleLoader__.load({
       const loading = state.status === 'loading'
       const graph = React.useMemo(() => {
         if (!repo || !Array.isArray(repo.commits) || repo.commits.length === 0) return null
-        return layoutGraph(repo.commits, repo.branches)
+        return layoutGraph(repo.commits, repo.branches, { laneGap: 18 })
       }, [repo])
       const nodeBySha = graph ? new Map(graph.nodes.map((node) => [node.sha, node])) : null
       const refresh = () => {
@@ -1975,7 +1975,7 @@ window.__ModuleLoader__.load({
       const detailCommit = detail && detail.commit ? detail.commit : null
       const graph = React.useMemo(() => {
         if (!repo || !Array.isArray(repo.commits) || repo.commits.length === 0) return null
-        return layoutGraph(repo.commits, repo.branches, { rowHeight: 64, laneGap: 18, pad: 16 })
+        return layoutGraph(repo.commits, repo.branches, { rowHeight: 64, laneGap: 26, pad: 16 })
       }, [repo])
       const nodeBySha = graph ? new Map(graph.nodes.map((node) => [node.sha, node])) : null
       const commits = repo && Array.isArray(repo.commits) ? repo.commits : []
