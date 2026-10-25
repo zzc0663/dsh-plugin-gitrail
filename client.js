@@ -47,6 +47,9 @@ window.__ModuleLoader__.load({
       'scope.missing': '该分支已不存在，已切换到所有分支。',
       'scope.emptyAll': '所有分支还没有提交',
       'scope.emptyBranch': '该分支还没有提交',
+      'legend.title': '颜色 = 分支',
+      'graph.merge': '合并',
+      'graph.fork': '分叉点',
       'meta.detached': '游离 HEAD',
       'meta.unborn': '空仓库',
       'meta.ahead': '领先',
@@ -89,6 +92,9 @@ window.__ModuleLoader__.load({
       'scope.missing': 'That branch no longer exists. Showing all branches.',
       'scope.emptyAll': 'No commits on any branch',
       'scope.emptyBranch': 'No commits on this branch',
+      'legend.title': 'Color = branch',
+      'graph.merge': 'Merge',
+      'graph.fork': 'Branch point',
       'meta.detached': 'Detached HEAD',
       'meta.unborn': 'Empty repository',
       'meta.ahead': 'ahead',
@@ -282,6 +288,391 @@ window.__ModuleLoader__.load({
       if (ref.startsWith('HEAD -> ')) return 'HEAD'
       if (ref.startsWith('tag: ')) return `#${ref.slice(5)}`
       return ref
+    }
+
+    const LANE_COLORS = 8
+
+    function laneColor(key) {
+      const text = String(key || '')
+      let hash = 0
+      for (let index = 0; index < text.length; index += 1) {
+        hash = (hash * 31 + text.charCodeAt(index)) | 0
+      }
+      return Math.abs(hash) % LANE_COLORS
+    }
+
+    function remoteColorKey(name) {
+      const slash = name.indexOf('/')
+      return slash === -1 ? name : name.slice(slash + 1)
+    }
+
+    /**
+     * Lay out a colored commit graph. Pure function: newest-first commits in,
+     * per-row segments/edges/nodes out. No DOM and no React.
+     */
+    function layoutGraph(commits, branches, options = {}) {
+      const rowHeight = options.rowHeight || 64
+      const laneGap = options.laneGap || 14
+      const pad = options.pad || 10
+      const list = Array.isArray(commits) ? commits : []
+      const locals = branches && Array.isArray(branches.locals) ? branches.locals : []
+      const remotes = branches && Array.isArray(branches.remotes) ? branches.remotes : []
+
+      const tipBySha = new Map()
+      const addTip = (branch, remote) => {
+        if (!branch || typeof branch.sha !== 'string' || branch.sha === '') return
+        const name = branch.name || branch.refname || branch.sha
+        const tip = {
+          name,
+          refname: branch.refname || '',
+          remote,
+          current: Boolean(branch.current),
+          color: laneColor(remote ? remoteColorKey(name) : name),
+        }
+        const tips = tipBySha.get(branch.sha) || []
+        tips.push(tip)
+        tipBySha.set(branch.sha, tips)
+      }
+      locals.forEach((branch) => addTip(branch, false))
+      remotes.forEach((branch) => addTip(branch, true))
+      const pickTip = (sha) => {
+        const choose = (tips) =>
+          tips.find((tip) => tip.current) || tips.find((tip) => !tip.remote) || tips[0]
+        const exact = tipBySha.get(sha)
+        if (exact && exact.length > 0) return choose(exact)
+        for (const [short, tips] of tipBySha) {
+          if (sha.startsWith(short)) return choose(tips)
+        }
+        return undefined
+      }
+
+      const rowOf = new Map()
+      list.forEach((commit, index) => {
+        if (commit && typeof commit.sha === 'string') rowOf.set(commit.sha, index)
+      })
+      const children = new Map()
+      for (const commit of list) {
+        for (const parent of commit.parents || []) children.set(parent, (children.get(parent) || 0) + 1)
+      }
+
+      const active = []
+      const nodes = []
+      const segments = []
+      const edges = []
+      const legend = []
+      const legendSeen = new Set()
+      let maxLane = 0
+
+      const xOf = (lane) => pad + lane * laneGap
+      const noteLane = (label, color, remote) => {
+        if (!label || legendSeen.has(label)) return
+        legendSeen.add(label)
+        legend.push({ label, color, remote })
+      }
+      const firstFree = (start) => {
+        for (let index = start; index < active.length; index += 1) {
+          if (active[index] === null || active[index] === undefined) return index
+        }
+        return active.length
+      }
+
+      for (let row = 0; row < list.length; row += 1) {
+        const commit = list[row]
+        if (!commit || typeof commit.sha !== 'string') continue
+        const yTop = row * rowHeight
+        const y = yTop + rowHeight / 2
+        const yBottom = yTop + rowHeight
+
+        const targetLanes = []
+        for (let index = 0; index < active.length; index += 1) {
+          if (active[index] && active[index].sha === commit.sha) targetLanes.push(index)
+        }
+        let lane = targetLanes[0]
+        if (lane === undefined) lane = firstFree(0)
+        const expected = active[lane]
+        const tip = pickTip(commit.sha)
+        const color = tip ? tip.color : expected ? expected.color : laneColor(commit.sha)
+        const remote = tip ? tip.remote : expected ? expected.remote : false
+        const label = tip ? tip.name : expected ? expected.label : undefined
+
+        for (let index = 0; index < active.length; index += 1) {
+          const state = active[index]
+          if (!state) continue
+          const isTarget = targetLanes.includes(index)
+          if (index === lane) {
+            segments.push({ x1: xOf(index), y1: yTop, x2: xOf(index), y2: y, color: state.color, remote: state.remote })
+          } else {
+            segments.push({
+              x1: xOf(index),
+              y1: yTop,
+              x2: xOf(index),
+              y2: isTarget ? y : yBottom,
+              color: state.color,
+              remote: state.remote,
+            })
+            if (isTarget) {
+              edges.push({
+                x1: xOf(index),
+                y1: y,
+                x2: xOf(lane),
+                y2: y,
+                color: state.color,
+                dashed: state.remote,
+                dangling: false,
+                kind: 'join',
+              })
+            }
+          }
+        }
+
+        active[lane] = null
+        for (const duplicate of targetLanes) {
+          if (duplicate !== lane) active[duplicate] = null
+        }
+
+        const parentTargets = []
+        const parents = Array.isArray(commit.parents) ? commit.parents : []
+        for (let parentIndex = 0; parentIndex < parents.length; parentIndex += 1) {
+          const parentSha = parents[parentIndex]
+          const visible = rowOf.has(parentSha)
+          let target = parentIndex === 0 && visible ? lane : active.findIndex((state) => state && state.sha === parentSha)
+          if (target === -1) {
+            target = parentIndex === 0 ? lane : firstFree(lane + 1)
+          }
+          const parentTip = pickTip(parentSha)
+          const targetState = active[target]
+          const parentLabel =
+            parentIndex === 0
+              ? (targetState && targetState.label) || label || (parentTip && parentTip.name)
+              : (parentTip && parentTip.name) || (targetState && targetState.label)
+          const parentColor =
+            parentIndex === 0
+              ? (targetState && targetState.color) || color
+              : (parentTip && parentTip.color) || (targetState && targetState.color) || laneColor(parentSha)
+          const parentRemote =
+            parentIndex === 0
+              ? targetState
+                ? targetState.remote
+                : remote
+              : parentTip
+                ? parentTip.remote
+                : targetState
+                  ? targetState.remote
+                  : false
+          if (visible && (!active[target] || active[target].sha !== parentSha)) {
+            active[target] = { sha: parentSha, color: parentColor, label: parentLabel, remote: parentRemote }
+          }
+          parentTargets.push({
+            parentIndex,
+            parentSha,
+            target,
+            visible,
+            color: parentColor,
+            remote: parentRemote,
+            label: parentLabel,
+          })
+          if (parentLabel) noteLane(parentLabel, parentColor, parentRemote)
+          maxLane = Math.max(maxLane, target, lane)
+        }
+        maxLane = Math.max(maxLane, lane)
+
+        for (const parent of parentTargets) {
+          edges.push({
+            x1: xOf(lane),
+            y1: y,
+            x2: xOf(parent.target),
+            y2: yBottom,
+            color: parent.color,
+            dashed: parent.parentIndex > 0 || parent.remote,
+            dangling: !parent.visible,
+            kind: parent.parentIndex === 0 ? 'first' : 'merge',
+          })
+        }
+
+        const merge = parents.length > 1
+        nodes.push({
+          sha: commit.sha,
+          row,
+          lane,
+          x: xOf(lane),
+          y,
+          color,
+          remote,
+          label,
+          merge,
+          fork: (children.get(commit.sha) || 0) > 1,
+          head: (commit.refs || []).some((ref) => ref.startsWith('HEAD')),
+          mergeTarget: merge ? parentTargets[0] && parentTargets[0].label : undefined,
+          mergeSource: merge ? parentTargets[1] && parentTargets[1].label : undefined,
+        })
+        if (label) noteLane(label, color, remote)
+      }
+
+      const laneCount = Math.max(1, maxLane + 1)
+      return {
+        rowHeight,
+        width: pad * 2 + (laneCount - 1) * laneGap,
+        height: list.length * rowHeight,
+        laneCount,
+        nodes,
+        segments,
+        edges,
+        legend,
+      }
+    }
+
+    function laneStroke(index) {
+      return `var(--gr-lane-${(index % LANE_COLORS) + 1})`
+    }
+
+    function GraphSvg(props) {
+      const graph = props.graph
+      const parts = []
+
+      graph.segments.forEach((segment, index) => {
+        parts.push(
+          h('line', {
+            key: `segment-${index}`,
+            x1: segment.x1,
+            y1: segment.y1,
+            x2: segment.x2,
+            y2: segment.y2,
+            stroke: laneStroke(segment.color),
+            strokeWidth: 2,
+            strokeLinecap: 'round',
+            strokeDasharray: segment.remote ? '4 3' : undefined,
+            opacity: segment.remote ? 0.72 : 1,
+          }),
+        )
+      })
+
+      graph.edges.forEach((edge, index) => {
+        const span = edge.y2 - edge.y1
+        const path =
+          edge.x1 === edge.x2
+            ? `M${edge.x1},${edge.y1}L${edge.x2},${edge.y2}`
+            : `M${edge.x1},${edge.y1}C${edge.x1},${edge.y1 + span * 0.45} ${edge.x2},${
+                edge.y2 - span * 0.45
+              } ${edge.x2},${edge.y2}`
+        parts.push(
+          h('path', {
+            key: `edge-${index}`,
+            d: path,
+            fill: 'none',
+            stroke: laneStroke(edge.color),
+            strokeWidth: 2,
+            strokeLinecap: 'round',
+            strokeDasharray: edge.dashed ? '3 3' : undefined,
+            opacity: edge.remote ? 0.72 : 1,
+          }),
+        )
+        if (edge.dangling) {
+          parts.push(
+            h('circle', {
+              key: `dangling-${index}`,
+              cx: edge.x2,
+              cy: edge.y2 - 2,
+              r: 3,
+              fill: 'none',
+              stroke: laneStroke(edge.color),
+              strokeWidth: 1.5,
+              strokeDasharray: '2 2',
+            }),
+          )
+        }
+      })
+
+      graph.nodes.forEach((node) => {
+        const color = laneStroke(node.color)
+        const opacity = node.remote ? 0.72 : 1
+        if (node.head) {
+          parts.push(
+            h('circle', {
+              key: `halo-${node.sha}`,
+              cx: node.x,
+              cy: node.y,
+              r: 9,
+              fill: 'none',
+              stroke: color,
+              strokeWidth: 1,
+              opacity: 0.35,
+            }),
+          )
+        }
+        if (node.merge) {
+          parts.push(
+            h('circle', {
+              key: `ring-${node.sha}`,
+              cx: node.x,
+              cy: node.y,
+              r: 7,
+              fill: 'none',
+              stroke: color,
+              strokeWidth: 1.6,
+              opacity,
+            }),
+          )
+          parts.push(h('circle', { key: `node-${node.sha}`, cx: node.x, cy: node.y, r: 3.2, fill: color, opacity }))
+        } else if (node.fork) {
+          parts.push(
+            h('rect', {
+              key: `node-${node.sha}`,
+              x: node.x - 4,
+              y: node.y - 4,
+              width: 8,
+              height: 8,
+              transform: `rotate(45 ${node.x} ${node.y})`,
+              fill: color,
+              opacity,
+            }),
+          )
+        } else {
+          parts.push(h('circle', { key: `node-${node.sha}`, cx: node.x, cy: node.y, r: 4, fill: color, opacity }))
+        }
+      })
+
+      return h(
+        'svg',
+        {
+          className: 'gr-graph',
+          width: graph.width,
+          height: graph.height,
+          viewBox: `0 0 ${graph.width} ${graph.height}`,
+          'aria-hidden': true,
+        },
+        parts,
+      )
+    }
+
+    function GraphLegend(props) {
+      const legend = props.legend
+      if (!Array.isArray(legend) || legend.length < 2) return null
+      return h(
+        'details',
+        { className: 'gr-legend' },
+        h(
+          'summary',
+          null,
+          h('span', null, props.t('legend.title')),
+          h('span', { className: 'gr-count' }, String(legend.length)),
+        ),
+        h(
+          'div',
+          { className: 'gr-legend-items' },
+          legend.map((item) =>
+            h(
+              'span',
+              { key: item.label, className: 'gr-legend-item', title: item.remote ? `${item.label} (remote)` : item.label },
+              h('span', {
+                className: 'gr-legend-dot',
+                'aria-hidden': true,
+                style: { background: laneStroke(item.color), opacity: item.remote ? 0.6 : 1 },
+              }),
+              item.label,
+            ),
+          ),
+        ),
+      )
     }
 
     let scopeMenuSeq = 0
@@ -523,20 +914,33 @@ window.__ModuleLoader__.load({
 
     function CommitRow(props) {
       const commit = props.commit
-      const refs = commit.refs.slice(0, 4)
-      const extra = commit.refs.length - refs.length
+      const node = props.node
+      const t = props.t
+      const refs = Array.isArray(commit.refs) ? commit.refs.slice(0, 4) : []
+      const extra = Array.isArray(commit.refs) ? commit.refs.length - refs.length : 0
+      const parents = Array.isArray(commit.parents) ? commit.parents : []
+      const operation =
+        node && node.merge
+          ? node.mergeTarget && node.mergeSource
+            ? `${t('graph.merge')}: ${node.mergeTarget} ← ${node.mergeSource}`
+            : `${t('graph.merge')} (${parents.length})`
+          : node && node.fork
+            ? t('graph.fork')
+            : ''
+      const subject = commit.subject || t('commit.noSubject')
+      const title = [commit.sha, `${commit.author} <${commit.email}>`, operation].filter(Boolean).join('\n')
 
       return h(
         'li',
         {
           className: 'gr-commit',
-          title: `${commit.sha}\n${commit.author} <${commit.email}>`,
+          title,
+          'aria-label': `${commit.short} ${subject}${operation ? `, ${operation}` : ''}`,
         },
-        h('span', { className: 'gr-rail', 'aria-hidden': true }, h('span', { className: 'gr-dot' })),
         h(
           'div',
           { className: 'gr-commit-body' },
-          h('div', { className: 'gr-subject' }, commit.subject || props.t('commit.noSubject')),
+          h('div', { className: 'gr-subject' }, subject),
           h(
             'div',
             { className: 'gr-meta' },
@@ -603,6 +1007,11 @@ window.__ModuleLoader__.load({
       const state = useRepo(sessionId, scope, nonce)
       const repo = state.data
       const loading = state.status === 'loading'
+      const graph = React.useMemo(() => {
+        if (!repo || !Array.isArray(repo.commits) || repo.commits.length === 0) return null
+        return layoutGraph(repo.commits, repo.branches)
+      }, [repo])
+      const nodeBySha = graph ? new Map(graph.nodes.map((node) => [node.sha, node])) : null
       const refresh = () => {
         setNotice(null)
         setNonce((value) => value + 1)
@@ -752,6 +1161,7 @@ window.__ModuleLoader__.load({
               ),
               h('span', { className: 'gr-count' }, String(commits.length)),
             ),
+            h(GraphLegend, { legend: graph ? graph.legend : [], t }),
             commits.length === 0
               ? h(Notice, {
                   title: repo.unborn
@@ -762,9 +1172,24 @@ window.__ModuleLoader__.load({
                   hint: repo.unborn ? t('state.unbornHint') : undefined,
                 })
               : h(
-                  'ol',
-                  { className: 'gr-commits' },
-                  commits.map((commit) => h(CommitRow, { key: commit.sha, commit, t })),
+                  'div',
+                  {
+                    className: 'gr-graph-wrap',
+                    style: graph ? { '--gr-graph-width': `${graph.width + 8}px` } : undefined,
+                  },
+                  graph ? h(GraphSvg, { graph }) : null,
+                  h(
+                    'ol',
+                    { className: 'gr-commits' },
+                    commits.map((commit) =>
+                      h(CommitRow, {
+                        key: commit.sha,
+                        commit,
+                        t,
+                        node: nodeBySha ? nodeBySha.get(commit.sha) : undefined,
+                      }),
+                    ),
+                  ),
                 ),
           ),
         ]
@@ -833,6 +1258,14 @@ window.__ModuleLoader__.load({
   color: var(--dsw-alias-label-primary);
   font: inherit;
   background: transparent;
+  --gr-lane-1: #3b82f6;
+  --gr-lane-2: #2ea043;
+  --gr-lane-3: #a371f7;
+  --gr-lane-4: #c69026;
+  --gr-lane-5: #db61a2;
+  --gr-lane-6: #2aa7b8;
+  --gr-lane-7: #d4712b;
+  --gr-lane-8: #cf5b5b;
 }
 .gr-head {
   display: flex;
@@ -1245,6 +1678,63 @@ window.__ModuleLoader__.load({
 .gr-remotes[open] > summary {
   border-bottom: 1px solid var(--dsw-alias-border-l1);
 }
+.gr-legend {
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 7px;
+}
+.gr-legend > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  list-style: none;
+}
+.gr-legend > summary .gr-count {
+  margin-left: auto;
+}
+.gr-legend > summary::before {
+  content: "›";
+  font-size: 12px;
+  line-height: 1;
+  color: var(--dsw-alias-label-secondary);
+  transition: transform 0.15s ease;
+}
+.gr-legend[open] > summary::before {
+  transform: rotate(90deg);
+}
+.gr-legend > summary::-webkit-details-marker {
+  display: none;
+}
+.gr-legend[open] > summary {
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+.gr-legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 7px 8px;
+}
+.gr-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 10px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gr-legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
 .gr-commits {
   list-style: none;
   margin: 0;
@@ -1252,62 +1742,51 @@ window.__ModuleLoader__.load({
   display: flex;
   flex-direction: column;
 }
-.gr-commit {
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
-  gap: 8px;
-  padding: 5px 0;
-}
-.gr-rail {
+.gr-graph-wrap {
   position: relative;
+  min-width: 0;
+}
+.gr-graph {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+.gr-commit {
   display: block;
-}
-.gr-rail::before {
-  content: "";
-  position: absolute;
-  left: 7px;
-  top: -5px;
-  bottom: -5px;
-  width: 2px;
-  background: var(--dsw-alias-brand-primary);
-  opacity: 0.45;
-}
-.gr-commit:first-child .gr-rail::before {
-  top: 11px;
-}
-.gr-commit:last-child .gr-rail::before {
-  bottom: calc(100% - 11px);
-}
-.gr-dot {
-  position: absolute;
-  left: 3px;
-  top: 6px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--dsw-alias-bg-layer-1);
-  border: 2px solid var(--dsw-alias-brand-primary);
-  z-index: 1;
+  height: 64px;
+  box-sizing: border-box;
+  padding: 6px 0 6px var(--gr-graph-width, 24px);
 }
 .gr-commit-body {
   min-width: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
+  justify-content: center;
 }
 .gr-subject {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
   font-size: 12px;
   line-height: 1.35;
+  max-height: 2.7em;
   overflow-wrap: anywhere;
 }
 .gr-meta {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
   min-width: 0;
+  overflow: hidden;
   font-size: 10px;
   color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
 }
 .gr-author {
   max-width: 10em;
@@ -1317,10 +1796,10 @@ window.__ModuleLoader__.load({
 }
 .gr-refs {
   display: inline-flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 4px;
   min-width: 0;
-  max-width: 100%;
+  overflow: hidden;
 }
 .gr-ref {
   max-width: 11em;
@@ -1467,6 +1946,8 @@ window.__ModuleLoader__.load({
       )
     }
 
-    return { inject, apply }
+    const plugin = { inject, apply }
+    if (globalThis.__GITRAIL_TEST__) plugin.__layoutGraph = layoutGraph
+    return plugin
   },
 })

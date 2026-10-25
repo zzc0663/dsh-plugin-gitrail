@@ -155,6 +155,7 @@ Gitrail 选择这条路径，而不是：
 - 刷新按钮有 `aria-label`、`title`，忙碌时 `aria-busy`；尊重 `prefers-reduced-motion`。
 - 提交范围默认「所有分支」；下拉是 `role="listbox"`，支持方向键 / Home / End / Enter / Escape，分支行同时可点选（`role="button"` + `aria-current`）。
 - 客户端只发送 `scope` / `ref`，不发送路径；Host 用 `for-each-ref` 结果做白名单，再拼 `git log` 参数。
+- **提交图**：`layoutGraph()` 是纯函数，输入 `commits[].parents` + `branches`，输出每行 lane/边/节点；渲染为一个绝对定位 SVG，提交行固定 64px，subject 最多两行。lane 颜色按分支名稳定哈希到 8 色板，合并来源边继承来源色；远程 lane 虚线。颜色是分类数据可视化的唯一例外，其余 UI 仍只用 `--dsw-alias-*`。
 
 ## 7. 文件地图
 
@@ -174,7 +175,7 @@ docs/                     架构、路线图、命名
 
 ## 8. 后续扩展点
 
-- **提交图 lane**：`commits[].parents` 已经返回，客户端可做拓扑/泳道布局，不改 Host 契约。
 - **提交详情 / diff**：新增 Host 只读命令（`show --stat`、`show --format=`），以及一个新的 tab type 或在 Gitrail 内部展开；不要用 `patterns` 劫持 `dsh-resource://file/**` 的文件预览。
+- **本地操作层（可选）**：checkout / pull / push 不在 commit 历史里；如果要做，单独读 `git reflog`，明确标注仅本机、不随仓库分发，不要混进历史图。
 - **写操作**：必须是显式用户动作 + 确认 + 失败回显；不要默认暴露给 agent 工具。遵守 DSH 的 `user-actions` 约定：UI 与工具共用同一个 Host 方法。
 - **自动刷新**：优先在 `window` 聚焦、tab 重新可见时刷新，而不是常驻轮询；注意多窗口与性能。

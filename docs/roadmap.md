@@ -7,7 +7,7 @@
 - [x] 只读 git 适配器：分支、当前分支、dirty、ahead/behind、最近 80 条提交
 - [x] Client：`gitrail` tab type + guide entry + `sidebar.right.pane.tab` body
 - [x] 错误态、空仓库、detached HEAD、刷新
-- [x] `npm run check`、21 项 `npm test`
+- [x] `npm run check`、30 项 `npm test`
 
 **已完成**：desktop profile 本机 preview 安装与暗色视觉验证；亮色主题、窄栏待检查。
 
@@ -19,9 +19,9 @@
 
 - [x] **提交范围选择**：当前分支 / 所有分支 / 单个本地或远程分支；Host 增加 `scope` + `ref` 白名单校验。详见 [plans/branch-scope.md](plans/branch-scope.md)。
 - [x] 分支行点击 → 切换范围；提交区标题显示当前范围。
-- [ ] **彩色提交图**：纯函数 lane 布局、分支色、分叉/合并/HEAD 节点；无第三方依赖 + 单测。详见 [plans/branch-graph.md](plans/branch-graph.md)。
-- [ ] **合并方向**：第一 parent 实线（迁入），第二及以后 parent 虚线（迁出）；能从 lane/ref 推断时显示 `main ← feature`。
-- [ ] 图例、颜色稳定性和灰度可读；轨道使用插件自有分类色板（亮/暗都校验），其余 UI 仍用 `--dsw-alias-*`。
+- [x] **彩色提交图**：纯函数 lane 布局、分支色、分叉/合并/HEAD 节点；无第三方依赖 + 单测。详见 [plans/branch-graph.md](plans/branch-graph.md)。
+- [x] **合并方向**：第一 parent 实线（迁入），第二及以后 parent 虚线（迁出）；能从 lane/ref 推断时显示 `main ← feature`。
+- [x] 图例、颜色稳定性和灰度可读；轨道使用插件自有分类色板（亮/暗都校验），其余 UI 仍用 `--dsw-alias-*`。
 - [ ] refs 装饰（分支 / tag / remote）与 lane 对齐，过长截断；固定行高保证 SVG 对齐。
 - [ ] 窗口重新聚焦 / tab 重新可见时静默刷新；保留手动刷新。
 - [ ] 长列表：虚拟化或分段加载（先测 500 条提交的渲染成本）。

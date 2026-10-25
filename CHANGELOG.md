@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 semantic versioning.
 
+## [0.3.0] — 2026-10-25
+
+### Added
+
+- Colored multi-lane commit graph rendered as an SVG overlay: stable per-branch
+  colors, fork points, merge nodes, HEAD halo, remote lanes (dashed / lower
+  opacity), dangling parents, and a collapsible branch-color legend.
+- Merge direction from parent order: the first parent continues the target lane
+  (solid), later parents leave it as dashed source edges; the tooltip names the
+  source and target lanes when they can be inferred.
+- Two-line commit subjects in fixed 64px rows so graph rows and SVG lanes stay
+  aligned; the full text remains in the tooltip.
+- Nine pure `layoutGraph` unit tests covering linear, fork, merge, octopus,
+  remote, dangling, empty, color stability, and shared tips.
+
 ## [0.2.0] — 2026-10-25
 
 ### Added
