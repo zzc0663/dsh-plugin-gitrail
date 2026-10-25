@@ -4,7 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 semantic versioning.
 
-## [Unreleased]
+## [0.2.0] — 2026-10-25
+
+### Added
+
+- Commit range selector: **all branches** (the new default), the current
+  branch, or one local / remote-tracking branch. Branch rows in the sidebar are
+  clickable and the commits header shows the active range.
+- Host `scope` / `ref` parameters with an allow-list built from
+  `for-each-ref`; `selection` and branch `refname` fields in the response.
+- `--topo-order` for multi-branch logs; detached HEAD and unborn repositories
+  remain supported.
 
 ### Fixed
 

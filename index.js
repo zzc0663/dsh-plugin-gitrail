@@ -122,6 +122,11 @@ function statusOfGitError(error) {
       return { status: 503, code: 'git/unavailable' }
     case 'git/timeout':
       return { status: 504, code: 'git/timeout' }
+    case 'request/bad-scope':
+    case 'request/bad-ref':
+      return { status: 400, code: error.code }
+    case 'git/unknown-ref':
+      return { status: 409, code: 'git/unknown-ref' }
     default:
       return { status: 500, code: 'git/failed' }
   }
@@ -177,7 +182,30 @@ export function apply(ctx) {
               return
             }
 
-            const repo = await readRepoState(session.cwd)
+            const rawScope = url.searchParams.get('scope')
+            const rawRef = url.searchParams.get('ref')
+            const hasRef = rawRef !== null && rawRef.trim() !== ''
+            const scope = rawScope === null || rawScope === '' ? (hasRef ? 'branch' : 'all') : rawScope
+            if (scope !== 'all' && scope !== 'branch') {
+              sendJson(res, 400, { ok: false, code: 'request/bad-scope', message: 'scope must be "all" or "branch"' })
+              return
+            }
+
+            let ref
+            if (scope === 'branch') {
+              ref = (rawRef ?? 'HEAD').trim()
+              if (
+                ref === '' ||
+                ref.length > 300 ||
+                ref.startsWith('-') ||
+                /[\s\u0000-\u001f]/.test(ref)
+              ) {
+                sendJson(res, 400, { ok: false, code: 'request/bad-ref', message: 'invalid branch reference' })
+                return
+              }
+            }
+
+            const repo = await readRepoState(session.cwd, { scope, ref })
             sendJson(res, 200, { ok: true, repo })
           } catch (error) {
             if (error instanceof GitError) {

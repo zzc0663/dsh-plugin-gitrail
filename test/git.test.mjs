@@ -44,10 +44,12 @@ test('parseRefs keeps local and remote branches and skips remote HEAD', () => {
     ['main', 'feature'],
   )
   assert.equal(refs.locals[0].current, true)
+  assert.equal(refs.locals[0].refname, 'refs/heads/main')
   assert.deepEqual(
     refs.remotes.map((branch) => branch.name),
     ['origin/main'],
   )
+  assert.equal(refs.remotes[0].refname, 'refs/remotes/origin/main')
 })
 
 test('parseLog splits commits, parents and refs', () => {
@@ -82,6 +84,76 @@ test('readRepoState describes a normal repository', async (t) => {
   assert.equal(state.commits[1].subject, 'initial commit')
   assert.ok(state.head.length >= 7)
   assert.ok(state.branches.locals.some((branch) => branch.name === 'main' && branch.current))
+  assert.equal(state.selection.scope, 'all')
+})
+
+test('readRepoState defaults to all branches and can scope to one branch', async (t) => {
+  const dir = await makeRepo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await commit(dir, 'a.txt', 'a\n', 'initial')
+  git(['switch', '-c', 'feature'], dir)
+  await commit(dir, 'feature.txt', 'feature\n', 'feature work')
+  git(['switch', 'main'], dir)
+  await commit(dir, 'main.txt', 'main\n', 'main work')
+
+  const all = await readRepoState(dir)
+  assert.equal(all.selection.scope, 'all')
+  assert.deepEqual(
+    all.commits.map((commit) => commit.subject).sort(),
+    ['feature work', 'initial', 'main work'],
+  )
+
+  const feature = await readRepoState(dir, { scope: 'branch', ref: 'refs/heads/feature' })
+  assert.equal(feature.selection.scope, 'branch')
+  assert.equal(feature.selection.ref, 'refs/heads/feature')
+  assert.deepEqual(
+    feature.commits.map((commit) => commit.subject).sort(),
+    ['feature work', 'initial'],
+  )
+
+  const main = await readRepoState(dir, { scope: 'branch', ref: 'refs/heads/main' })
+  assert.deepEqual(
+    main.commits.map((commit) => commit.subject).sort(),
+    ['initial', 'main work'],
+  )
+})
+
+test('readRepoState validates scope and ref before running log', async (t) => {
+  const dir = await makeRepo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await commit(dir, 'a.txt', 'a\n', 'first')
+
+  await assert.rejects(readRepoState(dir, { scope: 'nope' }), (error) => {
+    assert.ok(error instanceof GitError)
+    assert.equal(error.code, 'request/bad-scope')
+    return true
+  })
+  await assert.rejects(readRepoState(dir, { scope: 'branch', ref: '--all' }), (error) => {
+    assert.ok(error instanceof GitError)
+    assert.equal(error.code, 'request/bad-ref')
+    return true
+  })
+  await assert.rejects(readRepoState(dir, { scope: 'branch', ref: 'refs/heads/nope' }), (error) => {
+    assert.ok(error instanceof GitError)
+    assert.equal(error.code, 'git/unknown-ref')
+    return true
+  })
+})
+
+test('readRepoState can scope to a remote-tracking branch', async (t) => {
+  const dir = await makeRepo()
+  const remote = await makePlainDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  t.after(() => rm(remote, { recursive: true, force: true }))
+  git(['init', '--bare', '-b', 'main'], remote)
+  await commit(dir, 'a.txt', 'a\n', 'first')
+  git(['remote', 'add', 'origin', remote], dir)
+  git(['push', '-u', 'origin', 'main'], dir)
+  git(['fetch', 'origin'], dir)
+
+  const state = await readRepoState(dir, { scope: 'branch', ref: 'refs/remotes/origin/main' })
+  assert.equal(state.selection.ref, 'refs/remotes/origin/main')
+  assert.equal(state.commits[0].subject, 'first')
 })
 
 test('readRepoState reports an unborn repository', async (t) => {

@@ -38,6 +38,15 @@ window.__ModuleLoader__.load({
       'section.branches': '分支',
       'section.remotes': '远程分支',
       'section.commits': '最近提交',
+      'scope.all': '所有分支',
+      'scope.current': '当前分支',
+      'scope.local': '本地分支',
+      'scope.remote': '远程分支',
+      'scope.unknown': '未知分支',
+      'scope.menu': '选择提交范围',
+      'scope.missing': '该分支已不存在，已切换到所有分支。',
+      'scope.emptyAll': '所有分支还没有提交',
+      'scope.emptyBranch': '该分支还没有提交',
       'meta.detached': '游离 HEAD',
       'meta.unborn': '空仓库',
       'meta.ahead': '领先',
@@ -71,6 +80,15 @@ window.__ModuleLoader__.load({
       'section.branches': 'Branches',
       'section.remotes': 'Remote branches',
       'section.commits': 'Recent commits',
+      'scope.all': 'All branches',
+      'scope.current': 'Current branch',
+      'scope.local': 'Local branches',
+      'scope.remote': 'Remote branches',
+      'scope.unknown': 'Unknown branch',
+      'scope.menu': 'Select commit range',
+      'scope.missing': 'That branch no longer exists. Showing all branches.',
+      'scope.emptyAll': 'No commits on any branch',
+      'scope.emptyBranch': 'No commits on this branch',
       'meta.detached': 'Detached HEAD',
       'meta.unborn': 'Empty repository',
       'meta.ahead': 'ahead',
@@ -137,7 +155,7 @@ window.__ModuleLoader__.load({
 
     /* ================= data ================= */
 
-    function useRepo(sessionId, nonce) {
+    function useRepo(sessionId, scope, nonce) {
       const [state, setState] = React.useState({ status: 'idle', data: null, error: null, sessionId: null })
 
       React.useEffect(() => {
@@ -155,7 +173,15 @@ window.__ModuleLoader__.load({
           sessionId,
         }))
 
-        fetch(`${ENDPOINT}?session=${encodeURIComponent(sessionId)}`, {
+        const params = new URLSearchParams({ session: sessionId })
+        if (scope && scope.kind === 'all') {
+          params.set('scope', 'all')
+        } else {
+          params.set('scope', 'branch')
+          params.set('ref', (scope && scope.ref) || 'HEAD')
+        }
+
+        fetch(`${ENDPOINT}?${params.toString()}`, {
           signal: controller.signal,
           headers: { accept: 'application/json' },
           cache: 'no-store',
@@ -189,7 +215,7 @@ window.__ModuleLoader__.load({
           alive = false
           controller.abort()
         }
-      }, [sessionId, nonce])
+      }, [sessionId, scope && scope.kind, scope && scope.ref, nonce])
 
       return state
     }
@@ -243,6 +269,9 @@ window.__ModuleLoader__.load({
           return t('error.timeout')
         case 'network/failed':
           return t('error.network')
+        case 'git/unknown-ref':
+        case 'request/bad-ref':
+          return t('scope.missing')
         default:
           if (typeof (error && error.code) === 'string' && error.code.startsWith('http/')) return t('error.http')
           return (error && error.message) || t('error.generic')
@@ -255,15 +284,226 @@ window.__ModuleLoader__.load({
       return ref
     }
 
+    let scopeMenuSeq = 0
+
+    function ScopeMenu(props) {
+      const { repo, scope, onChange, disabled } = props
+      const t = props.t
+      const [open, setOpen] = React.useState(false)
+      const [active, setActive] = React.useState(0)
+      const wrapRef = React.useRef(null)
+      const listRef = React.useRef(null)
+      const triggerRef = React.useRef(null)
+      const optionRefs = React.useRef([])
+      const listId = React.useMemo(() => `gr-scope-${++scopeMenuSeq}`, [])
+
+      const locals = repo && repo.branches && Array.isArray(repo.branches.locals) ? repo.branches.locals : []
+      const remotes = repo && repo.branches && Array.isArray(repo.branches.remotes) ? repo.branches.remotes : []
+      const currentLabel =
+        repo && repo.branch && !repo.detached ? `${t('scope.current')} · ${repo.branch}` : t('scope.current')
+      const options = [
+        { key: 'all', kind: 'all', label: t('scope.all'), group: 'all' },
+        { key: 'HEAD', kind: 'branch', ref: 'HEAD', label: currentLabel, group: 'current' },
+        ...locals.map((branch) => ({
+          key: branch.refname || `refs/heads/${branch.name}`,
+          kind: 'branch',
+          ref: branch.refname || `refs/heads/${branch.name}`,
+          label: branch.name,
+          group: 'local',
+        })),
+        ...remotes.map((branch) => ({
+          key: branch.refname || `refs/remotes/${branch.name}`,
+          kind: 'branch',
+          ref: branch.refname || `refs/remotes/${branch.name}`,
+          label: branch.name,
+          group: 'remote',
+        })),
+      ]
+      const selectedKey = scope.kind === 'all' ? 'all' : scope.ref || 'HEAD'
+      const selectedIndex = options.findIndex((option) => option.key === selectedKey)
+      const selected = options[selectedIndex] || options[0]
+
+      const close = (focusTrigger) => {
+        setOpen(false)
+        if (focusTrigger && triggerRef.current !== null) triggerRef.current.focus()
+      }
+
+      const choose = (option) => {
+        setOpen(false)
+        onChange(option.kind === 'all' ? { kind: 'all' } : { kind: 'branch', ref: option.ref })
+        if (triggerRef.current !== null) triggerRef.current.focus()
+      }
+
+      React.useEffect(() => {
+        if (!open) return undefined
+        const onDocumentMouseDown = (event) => {
+          if (wrapRef.current !== null && !wrapRef.current.contains(event.target)) close(false)
+        }
+        document.addEventListener('mousedown', onDocumentMouseDown)
+        const index = Math.max(
+          0,
+          options.findIndex((option) => option.key === selectedKey),
+        )
+        setActive(index)
+        const raf = requestAnimationFrame(() => {
+          if (listRef.current !== null) listRef.current.focus()
+        })
+        return () => {
+          document.removeEventListener('mousedown', onDocumentMouseDown)
+          cancelAnimationFrame(raf)
+        }
+      }, [open])
+
+      React.useEffect(() => {
+        if (!open) return
+        const element = optionRefs.current[active]
+        if (element && typeof element.scrollIntoView === 'function') element.scrollIntoView({ block: 'nearest' })
+      }, [open, active])
+
+      const onKeyDown = (event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          close(true)
+          return
+        }
+        if (event.key === 'Tab') {
+          setOpen(false)
+          return
+        }
+        if (event.key === 'ArrowDown') {
+          event.preventDefault()
+          setActive((value) => (value + 1) % options.length)
+          return
+        }
+        if (event.key === 'ArrowUp') {
+          event.preventDefault()
+          setActive((value) => (value - 1 + options.length) % options.length)
+          return
+        }
+        if (event.key === 'Home') {
+          event.preventDefault()
+          setActive(0)
+          return
+        }
+        if (event.key === 'End') {
+          event.preventDefault()
+          setActive(options.length - 1)
+          return
+        }
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          choose(options[active])
+        }
+      }
+
+      const rows = []
+      let lastGroup = ''
+      options.forEach((option, index) => {
+        if (option.group !== lastGroup && (option.group === 'local' || option.group === 'remote')) {
+          rows.push(
+            h(
+              'div',
+              { key: `group-${option.group}`, className: 'gr-scope-group', role: 'presentation' },
+              t(option.group === 'local' ? 'scope.local' : 'scope.remote'),
+            ),
+          )
+        }
+        lastGroup = option.group
+        rows.push(
+          h(
+            'div',
+            {
+              key: option.key,
+              id: `${listId}-${index}`,
+              ref: (element) => {
+                optionRefs.current[index] = element
+              },
+              role: 'option',
+              'aria-selected': option.key === selectedKey,
+              className: `gr-scope-option${index === active ? ' is-active' : ''}${
+                option.key === selectedKey ? ' is-selected' : ''
+              }`,
+              onMouseEnter: () => setActive(index),
+              onClick: () => choose(option),
+            },
+            h('span', { className: 'gr-scope-option-label' }, option.label),
+            option.key === selectedKey
+              ? h('span', { className: 'gr-scope-check', 'aria-hidden': true }, '✓')
+              : null,
+          ),
+        )
+      })
+
+      return h(
+        'div',
+        { className: 'gr-scope-wrap', ref: wrapRef },
+        h(
+          'button',
+          {
+            type: 'button',
+            ref: triggerRef,
+            className: 'gr-scope-trigger',
+            disabled: Boolean(disabled),
+            'aria-haspopup': 'listbox',
+            'aria-expanded': open,
+            'aria-controls': open ? listId : undefined,
+            'aria-label': `${t('scope.menu')}: ${selected.label}`,
+            title: t('scope.menu'),
+            onClick: () => setOpen((value) => !value),
+            onKeyDown: (event) => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault()
+                setOpen(true)
+              }
+            },
+          },
+          h('span', { className: 'gr-scope-trigger-label' }, selected.label),
+          h('span', { className: 'gr-scope-caret', 'aria-hidden': true }, '▾'),
+        ),
+        open
+          ? h(
+              'div',
+              {
+                className: 'gr-scope-menu',
+                role: 'listbox',
+                id: listId,
+                tabIndex: -1,
+                ref: listRef,
+                'aria-label': t('scope.menu'),
+                'aria-activedescendant': `${listId}-${active}`,
+                onKeyDown,
+              },
+              rows,
+            )
+          : null,
+      )
+    }
+
     /* ================= view ================= */
 
     function BranchRow(props) {
       const branch = props.branch
+      const selected = Boolean(props.selected)
+      const onSelect = () => {
+        if (typeof props.onSelect === 'function') props.onSelect(branch)
+      }
+
       return h(
         'div',
         {
-          className: `gr-branch${branch.current ? ' is-current' : ''}`,
+          className: `gr-branch${branch.current ? ' is-current' : ''}${selected ? ' is-scoped' : ''}`,
+          role: 'button',
+          tabIndex: 0,
+          'aria-current': selected ? 'true' : undefined,
           title: [branch.name, branch.subject, branch.date].filter(Boolean).join('\n'),
+          onClick: onSelect,
+          onKeyDown: (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              onSelect()
+            }
+          },
         },
         h('span', { className: 'gr-branch-dot', 'aria-hidden': true }),
         h(
@@ -272,7 +512,12 @@ window.__ModuleLoader__.load({
           h('span', { className: 'gr-branch-name' }, branch.name),
           branch.upstream ? h('span', { className: 'gr-branch-up' }, branch.upstream) : null,
         ),
-        h('code', { className: 'gr-sha' }, branch.sha),
+        h(
+          'span',
+          { className: 'gr-branch-right' },
+          selected ? h('span', { className: 'gr-branch-check', 'aria-hidden': true }, '✓') : null,
+          h('code', { className: 'gr-sha' }, branch.sha),
+        ),
       )
     }
 
@@ -353,10 +598,39 @@ window.__ModuleLoader__.load({
       }
 
       const [nonce, setNonce] = React.useState(0)
-      const state = useRepo(sessionId, nonce)
+      const [scope, setScope] = React.useState({ kind: 'all' })
+      const [notice, setNotice] = React.useState(null)
+      const state = useRepo(sessionId, scope, nonce)
       const repo = state.data
       const loading = state.status === 'loading'
-      const refresh = () => setNonce((value) => value + 1)
+      const refresh = () => {
+        setNotice(null)
+        setNonce((value) => value + 1)
+      }
+
+      const sessionRef = React.useRef(sessionId)
+      React.useEffect(() => {
+        if (sessionRef.current === sessionId) return
+        sessionRef.current = sessionId
+        setScope({ kind: 'all' })
+        setNotice(null)
+      }, [sessionId])
+
+      React.useEffect(() => {
+        if (!state.error) return
+        if (
+          (state.error.code === 'git/unknown-ref' || state.error.code === 'request/bad-ref') &&
+          scope.kind === 'branch' &&
+          scope.ref !== 'HEAD'
+        ) {
+          setNotice(t('scope.missing'))
+          setScope({ kind: 'all' })
+        }
+      }, [state.error, scope.kind, scope.ref])
+
+      React.useEffect(() => {
+        if (state.status === 'ready' && notice !== null) setNotice(null)
+      }, [state.status])
 
       let content
       if (!sessionId) {
@@ -375,8 +649,19 @@ window.__ModuleLoader__.load({
         const locals = repo.branches && Array.isArray(repo.branches.locals) ? repo.branches.locals : []
         const remotes = repo.branches && Array.isArray(repo.branches.remotes) ? repo.branches.remotes : []
         const commits = Array.isArray(repo.commits) ? repo.commits : []
+        const selectedRef = scope.kind === 'branch' ? scope.ref : null
+        const isBranchSelected = (branch) =>
+          selectedRef !== null && (selectedRef === branch.refname || (selectedRef === 'HEAD' && branch.current))
+        const selectBranch = (branch) => {
+          if (!branch || !branch.refname) return
+          setNotice(null)
+          setScope({ kind: 'branch', ref: branch.refname })
+        }
 
         content = [
+          notice !== null
+            ? h('div', { className: 'gr-inline-notice', role: 'status', key: 'notice' }, notice)
+            : null,
           h(
             'div',
             { className: 'gr-status', key: 'status' },
@@ -408,7 +693,15 @@ window.__ModuleLoader__.load({
               : h(
                   'div',
                   { className: 'gr-branch-list' },
-                  locals.map((branch) => h(BranchRow, { key: branch.name, branch, t })),
+                  locals.map((branch) =>
+                    h(BranchRow, {
+                      key: branch.name,
+                      branch,
+                      t,
+                      selected: isBranchSelected(branch),
+                      onSelect: selectBranch,
+                    }),
+                  ),
                 ),
             remotes.length > 0
               ? h(
@@ -423,7 +716,15 @@ window.__ModuleLoader__.load({
                   h(
                     'div',
                     { className: 'gr-branch-list' },
-                    remotes.map((branch) => h(BranchRow, { key: branch.name, branch, t })),
+                    remotes.map((branch) =>
+                      h(BranchRow, {
+                        key: branch.name,
+                        branch,
+                        t,
+                        selected: isBranchSelected(branch),
+                        onSelect: selectBranch,
+                      }),
+                    ),
                   ),
                 )
               : null,
@@ -434,13 +735,30 @@ window.__ModuleLoader__.load({
             { className: 'gr-section', key: 'commits' },
             h(
               'div',
-              { className: 'gr-section-head' },
-              h('span', null, t('section.commits')),
+              { className: 'gr-section-head gr-commits-head' },
+              h(
+                'div',
+                { className: 'gr-commits-title' },
+                h('span', null, t('section.commits')),
+                h(ScopeMenu, {
+                  t,
+                  repo,
+                  scope,
+                  onChange: (next) => {
+                    setNotice(null)
+                    setScope(next)
+                  },
+                }),
+              ),
               h('span', { className: 'gr-count' }, String(commits.length)),
             ),
             commits.length === 0
               ? h(Notice, {
-                  title: repo.unborn ? t('state.unborn') : t('state.noCommits'),
+                  title: repo.unborn
+                    ? t('state.unborn')
+                    : scope.kind === 'all'
+                      ? t('scope.emptyAll')
+                      : t('scope.emptyBranch'),
                   hint: repo.unborn ? t('state.unbornHint') : undefined,
                 })
               : h(
@@ -684,6 +1002,126 @@ window.__ModuleLoader__.load({
   color: var(--dsw-alias-label-secondary);
   opacity: 0.8;
 }
+.gr-commits-head {
+  align-items: center;
+}
+.gr-commits-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.gr-scope-wrap {
+  position: relative;
+  min-width: 0;
+}
+.gr-scope-trigger {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 190px;
+  padding: 1px 7px;
+  border-radius: 5px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 18px;
+  cursor: pointer;
+}
+.gr-scope-trigger:hover {
+  background: var(--dsw-alias-bg-layer-2);
+}
+.gr-scope-trigger:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+.gr-scope-trigger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.gr-scope-trigger-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gr-scope-caret {
+  flex: none;
+  width: 0;
+  height: 0;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-top: 4px solid var(--dsw-alias-label-secondary);
+  transition: transform 0.15s ease;
+}
+.gr-scope-trigger[aria-expanded="true"] .gr-scope-caret {
+  transform: rotate(180deg);
+}
+.gr-scope-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  min-width: 210px;
+  max-width: 270px;
+  max-height: 300px;
+  overflow: auto;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+  outline: none;
+}
+.gr-scope-group {
+  padding: 7px 8px 3px;
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+  letter-spacing: 0.02em;
+}
+.gr-scope-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 11px;
+  line-height: 18px;
+  cursor: pointer;
+}
+.gr-scope-option.is-active {
+  background: var(--dsw-alias-bg-layer-1);
+}
+.gr-scope-option.is-selected {
+  font-weight: 600;
+}
+.gr-scope-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gr-scope-check {
+  margin-left: auto;
+  flex: none;
+  color: var(--dsw-alias-brand-primary);
+  font-size: 10px;
+}
+.gr-inline-notice {
+  padding: 7px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-left: 3px solid var(--dsw-alias-state-warn-primary);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
 .gr-branch-list {
   display: flex;
   flex-direction: column;
@@ -697,14 +1135,32 @@ window.__ModuleLoader__.load({
   grid-template-columns: 10px minmax(0, 1fr) auto;
   align-items: center;
   gap: 7px;
+  width: 100%;
+  box-sizing: border-box;
   padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.gr-branch:hover {
+  background: var(--dsw-alias-bg-layer-1);
+}
+.gr-branch:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -2px;
 }
 .gr-branch + .gr-branch {
   border-top: 1px solid var(--dsw-alias-border-l1);
 }
 .gr-branch.is-current {
   background: var(--dsw-alias-bg-layer-1);
+}
+.gr-branch.is-scoped {
+  background: var(--dsw-alias-bg-layer-2);
 }
 .gr-branch-dot {
   width: 6px;
@@ -736,6 +1192,15 @@ window.__ModuleLoader__.load({
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.gr-branch-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.gr-branch-check {
+  color: var(--dsw-alias-brand-primary);
+  font-size: 10px;
 }
 .gr-sha {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

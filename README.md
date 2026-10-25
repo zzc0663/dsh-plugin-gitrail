@@ -13,7 +13,7 @@
 
 *右侧栏中的 Gitrail（本机 preview，暗色主题）。*
 
-> 状态：**v0.1.0 / early**。仓库骨架与第一条纵向切片已完成；已通过 `npm run check` 和 17 项 `npm test`，并已在 desktop profile 的右侧栏打开验证（暗色主题）；亮色主题与窄栏表现仍待检查。
+> 状态：**v0.2.0 / early**。已通过 `npm run check` 和 21 项 `npm test`，并在 desktop profile 的右侧栏打开验证（暗色主题，含范围切换与分支点选）；亮色主题与窄栏表现仍待检查。
 
 ---
 
@@ -32,16 +32,17 @@
 
 ---
 
-## 现在能做什么（v0.1）
+## 现在能做什么（v0.2）
 
 在右侧栏的 guide 里打开「仓库」后：
 
+- 默认显示**所有本地 + 远程跟踪分支**的提交；提交区下拉可切换「所有分支 / 当前分支 / 单个本地或远程分支」，分支行也可以直接点选。
 - 显示仓库名、绝对路径、当前分支（含 detached HEAD / 空仓库状态）。
 - 显示工作区改动数、相对上游的 ahead / behind。
 - 列出本地分支（当前分支高亮、显示上游与短 SHA），远程分支折叠在次级区域。
 - 列出最近 80 条提交：短 SHA、作者、相对时间、refs（分支 / tag）、提交标题，并用一条垂直「轨道」串起来。
 - 手动刷新；读取中保留旧数据，不闪空屏。
-- 错误按原因给出可操作的文案：会话不存在、没有工作目录、不是 git 仓库、找不到 git、超时。
+- 错误按原因给出可操作的文案：会话不存在、没有工作目录、不是 git 仓库、找不到 git、超时、分支已删除。
 
 **还没有**：提交图的 lane 布局、diff / stat 预览、任何写操作。见 [docs/roadmap.md](docs/roadmap.md)。
 
@@ -66,7 +67,7 @@ target: D:\Documents\deepseek\dsh-plugin-gitrail
 
 1. 打开一个位于 git 仓库中的会话。
 2. 右侧栏顶部的 `+` / guide 中应出现「仓库」卡片。
-3. 打开后应看到当前分支与提交列表；切到暗色主题再检查一次对比度。
+3. 打开后应看到所有分支的提交列表；用「最近提交」旁的下拉切换单分支，点分支行也可以切换。
 4. 若面板报错，先看错误码：`git/not-a-repo`、`git/unavailable`、`session/no-cwd` 分别对应不同的环境问题。
 
 > 本仓库只提供 bundle，不自动修改 profile。不要手工复制到 `$DSH_HOME` 或编辑 profile 的 `cordis.patch.yml`，除非你明确知道自己在做什么。
@@ -79,7 +80,7 @@ target: D:\Documents\deepseek\dsh-plugin-gitrail
 
 ```powershell
 npm run check   # node --check + 清单/本地化/图标一致性
-npm test        # 17 项测试：解析器、路由与临时 git 仓库集成测试
+npm test        # 21 项测试：解析器、路由、范围校验与临时 git 仓库集成测试
 ```
 
 | 路径 | 职责 |

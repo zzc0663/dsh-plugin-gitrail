@@ -1,6 +1,6 @@
 # 计划：提交范围选择（所有分支 / 单个分支）
 
-状态：**提案，待确认** · 日期：2026-10-25 · 目标版本：0.2.0
+状态：**已实现（0.2.0）** · 日期：2026-10-25 · 目标版本：0.2.0
 
 ## 目标
 
@@ -23,7 +23,7 @@
 
 | 问题 | 建议 | 理由 |
 |---|---|---|
-| 默认范围 | **当前分支**（`HEAD`） | 不改变现有行为；用户明确选择后才看全量 |
+| 默认范围 | **所有分支**（用户确认） | 一眼看到整个仓库的分支轨道；单分支是显式缩小 |
 | 「所有分支」包含 | 本地 + 远程跟踪分支，**不含 tag/stash** | 与侧栏「分支」列表口径一致 |
 | 单分支参数 | 只接受完整 refname（`refs/heads/…` / `refs/remotes/…`）或 `HEAD` | 白名单校验，杜绝把用户输入拼进 git 参数 |
 | 控制方式 | 提交区标题右侧的紧凑下拉（自定义 listbox）+ 分支行可点选 | 与宿主暗色主题一致；窄栏可用；键盘可达 |
@@ -35,7 +35,7 @@
 ### 请求
 
 ```text
-GET /dsh-plugin-gitrail/repo?session=<id>                         # 默认：当前分支
+GET /dsh-plugin-gitrail/repo?session=<id>                         # 默认：所有分支
 GET /dsh-plugin-gitrail/repo?session=<id>&scope=all               # 所有分支
 GET /dsh-plugin-gitrail/repo?session=<id>&scope=branch&ref=refs/heads/develop
 GET /dsh-plugin-gitrail/repo?session=<id>&scope=branch&ref=refs/remotes/origin/main
@@ -86,7 +86,7 @@ GET /dsh-plugin-gitrail/repo?session=<id>&scope=branch&ref=HEAD
    - 继续过滤符号引用 `refs/remotes/<remote>/HEAD`（`%(refname:short)` 会返回 `<remote>`，必须按 refname 判断）。
 
 2. **`readRepoState(cwd, options)`**
-   - 新增 `options.scope`（`all` | `branch`）与 `options.ref`（默认 `HEAD`）。
+   - 新增 `options.scope`（默认 `all`）与 `options.ref`（`scope=branch` 时默认 `HEAD`）。
    - 先并行取 root / status / refs / head；再校验 ref；最后执行一次 log。
    - 白名单：
      ```text
@@ -117,7 +117,7 @@ GET /dsh-plugin-gitrail/repo?session=<id>&scope=branch&ref=HEAD
 
 ### 状态与请求
 
-- 新增 `scope` 状态：`{ kind: 'branch', ref: 'HEAD' }` 或 `{ kind: 'all' }`。
+- 新增 `scope` 状态，默认 `{ kind: 'all' }`；单分支为 `{ kind: 'branch', ref }`。
 - `useRepo(sessionId, scope, nonce)` 把 scope 拼进 query；effect 依赖 `sessionId`、`scope.kind`、`scope.ref`、`nonce`。
 - 切换 session 时重置为 `HEAD`；刷新保留 scope。
 - 请求中保留旧 commits（现有行为），顶部显示进度条；使用 AbortController 取消过期请求。
@@ -177,7 +177,7 @@ GET /dsh-plugin-gitrail/repo?session=<id>&scope=branch&ref=HEAD
 ### 单元 / 集成（Host）
 
 - [ ] `parseRefs` 返回 `refname`，符号 remote HEAD 仍被过滤。
-- [ ] `readRepoState` 默认范围只含 HEAD 历史。
+- [ ] `readRepoState` 默认范围包含所有分支。
 - [ ] 单本地分支只含该分支提交。
 - [ ] 单远程跟踪分支可用（临时 bare remote + fetch）。
 - [ ] `scope=all` 含两个分支的提交，merge commit 不重复。
@@ -236,7 +236,7 @@ GET /dsh-plugin-gitrail/repo?session=<id>&scope=branch&ref=HEAD
 
 ## 待确认
 
-1. 默认范围用**当前分支**（建议）还是「所有分支」？
+1. ~~默认范围用当前分支还是所有分支？~~ 已确认：**所有分支**。
 2. 单分支选项是否要包含**远程跟踪分支**（建议包含）？
 3. 范围选择是否需要**跨会话记住**（建议 v1 不持久化）？
 4. 控件用**自定义下拉**（建议）还是原生 `<select>` / 仅点击分支行？

@@ -7,7 +7,7 @@
 - [x] 只读 git 适配器：分支、当前分支、dirty、ahead/behind、最近 80 条提交
 - [x] Client：`gitrail` tab type + guide entry + `sidebar.right.pane.tab` body
 - [x] 错误态、空仓库、detached HEAD、刷新
-- [x] `npm run check`、17 项 `npm test`
+- [x] `npm run check`、21 项 `npm test`
 
 **已完成**：desktop profile 本机 preview 安装与暗色视觉验证；亮色主题、窄栏待检查。
 
@@ -17,8 +17,8 @@
 
 **目标**：先让提交列表能按分支聚焦，再把「rail」做成可读的分支轨道。
 
-- [ ] **提交范围选择**：当前分支 / 所有分支 / 单个本地或远程分支；Host 增加 `scope` + `ref` 白名单校验。详见 [plans/branch-scope.md](plans/branch-scope.md)。
-- [ ] 分支行点击 → 切换范围；提交区标题显示当前范围。
+- [x] **提交范围选择**：当前分支 / 所有分支 / 单个本地或远程分支；Host 增加 `scope` + `ref` 白名单校验。详见 [plans/branch-scope.md](plans/branch-scope.md)。
+- [x] 分支行点击 → 切换范围；提交区标题显示当前范围。
 - [ ] 根据 `commits[].parents` 计算 lane（无第三方依赖，纯函数 + 单测）。
 - [ ] 在提交行左侧画多列轨道：分叉、合并、当前 HEAD 节点；颜色只用主题令牌。
 - [ ] refs 装饰（分支 / tag / remote）与 lane 对齐，过长截断。

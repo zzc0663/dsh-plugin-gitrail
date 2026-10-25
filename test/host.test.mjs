@@ -5,7 +5,7 @@ import { basename, join } from 'node:path'
 import test from 'node:test'
 
 import { apply } from '../index.js'
-import { commit, makePlainDir, makeRepo } from '../test-support/git.mjs'
+import { commit, git, makePlainDir, makeRepo } from '../test-support/git.mjs'
 
 const SESSION = 'session-test'
 const HOST = '127.0.0.1:62895'
@@ -86,6 +86,60 @@ test('GET /repo serves the live session workspace', async (t) => {
   assert.equal(body.repo.branch, 'main')
   assert.equal(body.repo.commits.length, 1)
   assert.equal(body.repo.commits[0].subject, 'initial commit')
+  assert.equal(body.repo.selection.scope, 'all')
+})
+
+test('GET /repo scopes commits to one branch and validates the ref', async (t) => {
+  const dir = await makeRepo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await commit(dir, 'a.txt', 'a\n', 'initial')
+  git(['switch', '-c', 'feature'], dir)
+  await commit(dir, 'feature.txt', 'feature\n', 'feature work')
+  git(['switch', 'main'], dir)
+  await commit(dir, 'main.txt', 'main\n', 'main work')
+
+  const route = harness({ live: { header: { cwd: dir } } })
+
+  const feature = await request(route, {
+    url: `/dsh-plugin-gitrail/repo?session=${SESSION}&scope=branch&ref=refs/heads/feature`,
+  })
+  assert.equal(feature.status, 200)
+  assert.equal(feature.body.repo.selection.scope, 'branch')
+  assert.equal(feature.body.repo.selection.ref, 'refs/heads/feature')
+  assert.deepEqual(
+    feature.body.repo.commits.map((commit) => commit.subject).sort(),
+    ['feature work', 'initial'],
+  )
+
+  const all = await request(route, { url: `/dsh-plugin-gitrail/repo?session=${SESSION}` })
+  assert.deepEqual(
+    all.body.repo.commits.map((commit) => commit.subject).sort(),
+    ['feature work', 'initial', 'main work'],
+  )
+
+  const badScope = await request(route, {
+    url: `/dsh-plugin-gitrail/repo?session=${SESSION}&scope=nope`,
+  })
+  assert.equal(badScope.status, 400)
+  assert.equal(badScope.body.code, 'request/bad-scope')
+
+  const badRef = await request(route, {
+    url: `/dsh-plugin-gitrail/repo?session=${SESSION}&scope=branch&ref=--all`,
+  })
+  assert.equal(badRef.status, 400)
+  assert.equal(badRef.body.code, 'request/bad-ref')
+
+  const unknownRef = await request(route, {
+    url: `/dsh-plugin-gitrail/repo?session=${SESSION}&scope=branch&ref=refs/heads/nope`,
+  })
+  assert.equal(unknownRef.status, 409)
+  assert.equal(unknownRef.body.code, 'git/unknown-ref')
+
+  const allIgnoresRef = await request(route, {
+    url: `/dsh-plugin-gitrail/repo?session=${SESSION}&scope=all&ref=--all`,
+  })
+  assert.equal(allIgnoresRef.status, 200)
+  assert.equal(allIgnoresRef.body.repo.selection.scope, 'all')
 })
 
 test('GET /repo falls back to the session index for a non-live session', async (t) => {

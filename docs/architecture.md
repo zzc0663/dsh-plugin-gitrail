@@ -38,9 +38,14 @@ Gitrail 选择这条路径，而不是：
 
 ## 3. HTTP 契约
 
-### `GET /dsh-plugin-gitrail/repo?session=<id>`
+### `GET /dsh-plugin-gitrail/repo?session=<id>[&scope=all|branch][&ref=<refname>]`
 
 只允许 loopback 的 `Host`；只允许 GET。`session` 必须匹配 `^[A-Za-z0-9._:-]{1,200}$`。
+
+- `scope` 缺省为 `all`（所有本地 + 远程跟踪分支）。
+- `scope=branch` 时 `ref` 缺省为 `HEAD`；只接受 `HEAD` 或仓库中实际存在的完整 refname（`refs/heads/…`、`refs/remotes/…`）。
+- 同时提供 `ref` 但省略 `scope` 时按 `branch` 处理；`scope=all` 时忽略 `ref`。
+- 单分支日志为 `git log <ref> --`；所有分支为 `git log --branches --remotes`，两者都带 `--topo-order`。
 
 成功（200）：
 
@@ -58,9 +63,15 @@ Gitrail 选择这条路径，而不是：
     "ahead": 2,
     "behind": 0,
     "changes": 3,
+    "selection": {
+      "scope": "branch",
+      "ref": "refs/heads/main",
+      "detached": false
+    },
     "branches": {
       "locals": [
         {
+          "refname": "refs/heads/main",
           "name": "main",
           "sha": "a35fef6",
           "upstream": "origin/main",
@@ -71,6 +82,7 @@ Gitrail 选择这条路径，而不是：
       ],
       "remotes": [
         {
+          "refname": "refs/remotes/origin/main",
           "name": "origin/main",
           "sha": "a35fef6",
           "upstream": "",
@@ -102,12 +114,15 @@ Gitrail 选择这条路径，而不是：
 | HTTP | code | 含义 |
 |---|---|---|
 | 400 | `request/bad-session` | session id 缺失或格式非法 |
+| 400 | `request/bad-scope` | `scope` 不是 `all` / `branch` |
+| 400 | `request/bad-ref` | ref 格式非法（以 `-` 开头、含空白/控制字符、超长） |
 | 403 | `http/forbidden` | `Host` 不是 loopback |
 | 404 | `session/not-found` | 会话不存在（live 与索引都查不到） |
 | 404 | `http/not-found` | 未知子路径 |
 | 405 | `http/method-not-allowed` | 非 GET |
 | 409 | `session/no-cwd` | 会话存在但没有工作目录 |
 | 409 | `git/not-a-repo` | 工作目录不是 git 仓库 |
+| 409 | `git/unknown-ref` | ref 格式合法但已不在仓库中（分支被删/远程已 prune） |
 | 500 | `git/failed` / `server/failed` | git 或宿主内部失败 |
 | 503 | `git/unavailable` | 找不到 `git` 可执行文件 |
 | 504 | `git/timeout` | 10s 超时 |
