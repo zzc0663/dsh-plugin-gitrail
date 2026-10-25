@@ -7,7 +7,7 @@
 - [x] 只读 git 适配器：分支、当前分支、dirty、ahead/behind、最近 80 条提交
 - [x] Client：`gitrail` tab type + guide entry + `sidebar.right.pane.tab` body
 - [x] 错误态、空仓库、detached HEAD、刷新
-- [x] `npm run check`、31 项 `npm test`
+- [x] `npm run check`、40 项 `npm test`
 
 **已完成**：desktop profile 本机 preview 安装与暗色视觉验证；亮色主题、窄栏待检查。
 
@@ -23,8 +23,8 @@
 - [x] **合并方向**：第一 parent 实线（迁入），第二及以后 parent 虚线（迁出）；能从 lane/ref 推断时显示 `main ← feature`。
 - [x] 图例、颜色稳定性和灰度可读；轨道使用插件自有分类色板（亮/暗都校验），其余 UI 仍用 `--dsw-alias-*`。
 - [x] **全宽 Gitrail Graph 主面板**：`sidebar.panellist` 入口 + root `main` 页面，左侧图谱、右侧提交信息；分支 tip 交接颜色/标签，行底色按 lane 色。
-- [ ] 分支列表色圈与 lane 色一致（本地/远程同名同色，远程虚线环）；提交标题 600 字重。详见 [plans/branch-colors-and-commit-details.md](plans/branch-colors-and-commit-details.md)。
-- [ ] 右侧栏点击提交 → 打开全宽页并选中；全宽页点击提交 → 右侧详情。
+- [x] 分支列表色圈与 lane 色一致（本地/远程同名同色，远程虚线环）；提交标题 600 字重。详见 [plans/branch-colors-and-commit-details.md](plans/branch-colors-and-commit-details.md)。
+- [x] 右侧栏点击提交 → 打开全宽页并选中；全宽页点击提交 → 右侧详情。
 - [ ] refs 装饰（分支 / tag / remote）与 lane 对齐，过长截断；固定行高保证 SVG 对齐。
 - [ ] 窗口重新聚焦 / tab 重新可见时静默刷新；保留手动刷新。
 - [ ] 长列表：虚拟化或分段加载（先测 500 条提交的渲染成本）。
@@ -38,10 +38,10 @@
 **目标**：让全宽页右侧从「只有 metadata」变成可读的提交详情；diff 分两步。
 
 - [x] 方案：**全宽页右侧「提交信息」**（不新增 tab，不挤压图谱列表）。
-- [ ] **D1**：Host `GET /commit?session=&sha=` 返回完整 message、作者/提交者、时间、parents、refs、`--numstat` 文件列表；SHA 校验与上限。
-- [ ] **D1**：右侧详情渲染 message、作者、时间、文件 `+/-`、binary/rename；加载/空态/截断。
-- [ ] **D2**：文件 diff 预览，限制 512 KiB；文件行点击复用 `dsh-resource://file/...` 打开现有预览，而不是自己渲染源码。
-- [ ] 决定「右侧栏点提交」：打开全宽页并选中（见 [plans/branch-colors-and-commit-details.md](plans/branch-colors-and-commit-details.md)）。
+- [x] **D1**：Host `GET /commit?session=&sha=` 返回完整 message、作者/提交者、时间、parents、refs、`--numstat` 文件列表；SHA 校验与上限。
+- [x] **D1**：右侧详情渲染 message、作者、时间、文件 `+/-`、binary/rename；加载/空态/截断。
+- [x] **D2**：文件 diff 预览，限制 512 KiB；文件行在可用时打开 `dsh-resource://file/...` 预览。
+- [x] 右侧栏点提交：打开全宽页并选中。
 
 **验收**：merge、rename、二进制文件都有明确呈现；大 patch 不会卡死面板；非法/不存在的 SHA 被拒绝。
 

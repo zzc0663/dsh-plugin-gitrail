@@ -20,6 +20,7 @@ window.__ModuleLoader__.load({
     const PANEL_ID = 'gitrail-graph'
     const NS = 'gitrail'
     const ENDPOINT = '/dsh-plugin-gitrail/repo'
+    const ENDPOINT_COMMIT = '/dsh-plugin-gitrail/commit'
 
     /* ================= copy ================= */
 
@@ -62,6 +63,16 @@ window.__ModuleLoader__.load({
       'page.parents': '父提交',
       'page.refs': '引用',
       'page.diffLater': 'diff / stat 预览将在 M2 提供。',
+      'page.files': '改动文件',
+      'page.message': '提交说明',
+      'page.filesTruncated': '文件列表已截断',
+      'page.bodyTruncated': '提交说明已截断',
+      'page.patchUnavailable': 'diff 不可用。',
+      'page.diff': 'diff',
+      'page.diffTruncated': 'diff 已截断（512 KiB）',
+      'page.binary': '二进制',
+      'page.loadingDetail': '正在读取提交详情…',
+      'error.commitNotFound': '提交不存在或已被移除。',
       'action.openPanel': '全宽打开图谱',
       'meta.detached': '游离 HEAD',
       'meta.unborn': '空仓库',
@@ -119,6 +130,16 @@ window.__ModuleLoader__.load({
       'page.parents': 'Parents',
       'page.refs': 'Refs',
       'page.diffLater': 'diff / stat preview arrives in M2.',
+      'page.files': 'Changed files',
+      'page.message': 'Commit message',
+      'page.filesTruncated': 'File list truncated',
+      'page.bodyTruncated': 'Commit message truncated',
+      'page.patchUnavailable': 'diff unavailable.',
+      'page.diff': 'diff',
+      'page.diffTruncated': 'diff truncated (512 KiB)',
+      'page.binary': 'binary',
+      'page.loadingDetail': 'Reading commit…',
+      'error.commitNotFound': 'This commit no longer exists.',
       'action.openPanel': 'Open full graph',
       'meta.detached': 'Detached HEAD',
       'meta.unborn': 'Empty repository',
@@ -265,6 +286,169 @@ window.__ModuleLoader__.load({
       return state
     }
 
+    function createSelectionStore() {
+      let value = null
+      const listeners = new Set()
+      const emit = () => {
+        for (const listener of listeners) listener()
+      }
+      return {
+        getSnapshot: () => value,
+        subscribe: (listener) => {
+          listeners.add(listener)
+          return () => {
+            listeners.delete(listener)
+          }
+        },
+        select: (sessionId, sha) => {
+          if (value && value.sessionId === sessionId && value.sha === sha) return
+          value = { sessionId, sha }
+          emit()
+        },
+        clear: () => {
+          if (value === null) return
+          value = null
+          emit()
+        },
+      }
+    }
+
+    function branchColorIndex(name, remote) {
+      return laneColor(remote ? remoteColorKey(name) : name)
+    }
+
+    function fileAddressFor(sessionId, cwd, root, file) {
+      const normalize = (value) => String(value || '').replace(/\\/g, '/').replace(/\/+$/, '')
+      const absolute = `${normalize(root)}/${String(file || '').replace(/\\/g, '/')}`
+      const workspace = normalize(cwd)
+      const relative = workspace && absolute.startsWith(`${workspace}/`) ? absolute.slice(workspace.length + 1) : absolute
+      const encoded = relative.split('/').map((segment) => encodeURIComponent(segment)).join('/')
+      return `dsh-resource://file/session/${encodeURIComponent(sessionId)}/${encoded}`
+    }
+
+    function useCommitDetail(sessionId, sha) {
+      const [state, setState] = React.useState({ status: 'idle', data: null, error: null, sha: null })
+
+      React.useEffect(() => {
+        if (!sessionId || !sha) {
+          setState({ status: 'idle', data: null, error: null, sha: null })
+          return undefined
+        }
+        const controller = new AbortController()
+        let alive = true
+        setState((previous) => ({
+          status: 'loading',
+          data: previous.sha === sha ? previous.data : null,
+          error: null,
+          sha,
+        }))
+
+        fetch(`${ENDPOINT_COMMIT}?session=${encodeURIComponent(sessionId)}&sha=${encodeURIComponent(sha)}`, {
+          signal: controller.signal,
+          headers: { accept: 'application/json' },
+          cache: 'no-store',
+          credentials: 'same-origin',
+        })
+          .then(async (response) => {
+            let body = null
+            try {
+              body = await response.json()
+            } catch {
+              body = null
+            }
+            if (!response.ok || body === null || body.ok !== true) {
+              const error = new Error((body && body.message) || `HTTP ${response.status}`)
+              error.code = (body && body.code) || `http/${response.status}`
+              throw error
+            }
+            if (alive) setState({ status: 'ready', data: body, error: null, sha })
+          })
+          .catch((error) => {
+            if (!alive || (error && error.name === 'AbortError')) return
+            setState({
+              status: 'error',
+              data: null,
+              error: { code: (error && error.code) || 'network/failed', message: (error && error.message) || '' },
+              sha,
+            })
+          })
+
+        return () => {
+          alive = false
+          controller.abort()
+        }
+      }, [sessionId, sha])
+
+      return state
+    }
+
+    function diffLineClass(line) {
+      if (line.startsWith('@@')) return 'is-hunk'
+      if (line.startsWith('+++') || line.startsWith('---')) return 'is-file'
+      if (
+        line.startsWith('diff --git') ||
+        line.startsWith('index ') ||
+        line.startsWith('new file') ||
+        line.startsWith('deleted file') ||
+        line.startsWith('rename ') ||
+        line.startsWith('similarity ')
+      ) {
+        return 'is-meta'
+      }
+      if (line.startsWith('+')) return 'is-add'
+      if (line.startsWith('-')) return 'is-del'
+      return ''
+    }
+
+    function DiffView(props) {
+      const patch = typeof props.patch === 'string' ? props.patch : ''
+      if (props.unavailable) return h('div', { className: 'gr-muted' }, props.t('page.patchUnavailable'))
+      if (patch === '') return null
+      const lines = patch.split(/\r?\n/)
+      const shown = lines.slice(0, 4000)
+      return h(
+        'div',
+        { className: 'gr-diff-wrap' },
+        h('div', { className: 'gr-detail-section-head' }, props.t('page.diff')),
+        h(
+          'pre',
+          { className: 'gr-diff' },
+          shown.map((line, index) =>
+            h('span', { key: index, className: `gr-diff-line ${diffLineClass(line)}` }, line || ' '),
+          ),
+        ),
+        props.truncated || lines.length > shown.length
+          ? h('div', { className: 'gr-detail-note' }, props.t('page.diffTruncated'))
+          : null,
+      )
+    }
+
+    function FileRow(props) {
+      const file = props.file
+      const label = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path
+      const content = [
+        h('span', { className: 'gr-file-path', key: 'path', title: label }, file.path),
+        h(
+          'span',
+          { className: 'gr-file-stat', key: 'stat' },
+          file.binary ? props.t('page.binary') : `+${file.additions} −${file.deletions}`,
+        ),
+      ]
+      if (typeof props.onOpen === 'function') {
+        return h(
+          'button',
+          {
+            type: 'button',
+            className: 'gr-file-row',
+            onClick: props.onOpen,
+            title: file.oldPath ? `${file.oldPath} → ${file.path}` : file.path,
+          },
+          content,
+        )
+      }
+      return h('div', { className: 'gr-file-row', title: label }, content)
+    }
+
     const RELATIVE = (() => {
       try {
         return new Intl.RelativeTimeFormat(undefined, { numeric: 'auto', style: 'short' })
@@ -327,6 +511,8 @@ window.__ModuleLoader__.load({
         case 'git/unknown-ref':
         case 'request/bad-ref':
           return t('scope.missing')
+        case 'git/commit-not-found':
+          return t('error.commitNotFound')
         default:
           if (typeof (error && error.code) === 'string' && error.code.startsWith('http/')) return t('error.http')
           return (error && error.message) || t('error.generic')
@@ -930,7 +1116,9 @@ window.__ModuleLoader__.load({
 
     function BranchRow(props) {
       const branch = props.branch
+      const remote = Boolean(props.remote)
       const selected = Boolean(props.selected)
+      const color = branchColorIndex(branch.name, remote)
       const onSelect = () => {
         if (typeof props.onSelect === 'function') props.onSelect(branch)
       }
@@ -951,7 +1139,17 @@ window.__ModuleLoader__.load({
             }
           },
         },
-        h('span', { className: 'gr-branch-dot', 'aria-hidden': true }),
+        h('span', {
+          className: 'gr-branch-dot',
+          'aria-hidden': true,
+          title: branch.name,
+          style: {
+            borderColor: laneStroke(color),
+            borderStyle: remote ? 'dashed' : 'solid',
+            background: branch.current ? laneStroke(color) : 'transparent',
+            opacity: remote ? 0.7 : 1,
+          },
+        }),
         h(
           'span',
           { className: 'gr-branch-label' },
@@ -1086,6 +1284,7 @@ window.__ModuleLoader__.load({
     function GitrailBody(props) {
       const sessionId = props.sessionId
       const openPanel = props.openPanel
+      const selection = props.selection
       const translate = props.t
       const t = (key) => {
         if (typeof translate !== 'function') return key
@@ -1202,6 +1401,7 @@ window.__ModuleLoader__.load({
                       key: branch.name,
                       branch,
                       t,
+                      remote: false,
                       selected: isBranchSelected(branch),
                       onSelect: selectBranch,
                     }),
@@ -1225,6 +1425,7 @@ window.__ModuleLoader__.load({
                         key: branch.name,
                         branch,
                         t,
+                        remote: true,
                         selected: isBranchSelected(branch),
                         onSelect: selectBranch,
                       }),
@@ -1282,6 +1483,10 @@ window.__ModuleLoader__.load({
                         commit,
                         t,
                         node: nodeBySha ? nodeBySha.get(commit.sha) : undefined,
+                        onSelect: (sha) => {
+                          if (selection && typeof selection.select === 'function') selection.select(sessionId, sha)
+                          if (typeof openPanel === 'function') openPanel()
+                        },
                       }),
                     ),
                   ),
@@ -1360,6 +1565,8 @@ window.__ModuleLoader__.load({
     function GitrailPage(props) {
       const t = typeof props.t === 'function' ? props.t : (key) => key
       const sessions = props.sessions
+      const selection = props.selection
+      const openFile = props.openFile
       const subscribe = React.useCallback(
         (callback) => {
           if (!sessions || !sessions.list || typeof sessions.list.subscribe !== 'function') return () => {}
@@ -1381,9 +1588,17 @@ window.__ModuleLoader__.load({
       const [nonce, setNonce] = React.useState(0)
       const [selectedSha, setSelectedSha] = React.useState(null)
       const [notice, setNotice] = React.useState(null)
+      const selectionSnapshot = React.useSyncExternalStore(
+        (callback) => (selection ? selection.subscribe(callback) : () => {}),
+        () => (selection ? selection.getSnapshot() : null),
+        () => null,
+      )
       const state = useRepo(sessionId, scope, nonce)
       const repo = state.data
       const loading = state.status === 'loading'
+      const detailState = useCommitDetail(sessionId, selectedSha)
+      const detail = detailState.data
+      const detailCommit = detail && detail.commit ? detail.commit : null
       const graph = React.useMemo(() => {
         if (!repo || !Array.isArray(repo.commits) || repo.commits.length === 0) return null
         return layoutGraph(repo.commits, repo.branches, { rowHeight: 64, laneGap: 18, pad: 16 })
@@ -1411,10 +1626,18 @@ window.__ModuleLoader__.load({
           setSelectedSha(null)
           return
         }
-        setSelectedSha((previous) =>
-          repo.commits.some((commit) => commit.sha === previous) ? previous : repo.commits[0].sha,
-        )
-      }, [repo])
+        const preferred =
+          selectionSnapshot && selectionSnapshot.sessionId === sessionId ? selectionSnapshot.sha : null
+        setSelectedSha((previous) => {
+          if (preferred && repo.commits.some((commit) => commit.sha === preferred)) return preferred
+          return repo.commits.some((commit) => commit.sha === previous) ? previous : repo.commits[0].sha
+        })
+      }, [repo, selectionSnapshot, sessionId])
+
+      const selectCommit = (sha) => {
+        setSelectedSha(sha)
+        if (selection && typeof selection.select === 'function') selection.select(sessionId, sha)
+      }
 
       React.useEffect(() => {
         if (!state.error) return
@@ -1445,15 +1668,24 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'gr-text-button', onClick: refresh }, t('action.retry')),
         )
       } else if (repo) {
-        const operation = selectedNode && selectedNode.merge
-          ? selectedNode.mergeTarget && selectedNode.mergeSource
-            ? `${t('graph.merge')}: ${selectedNode.mergeTarget} ← ${selectedNode.mergeSource}`
-            : `${t('graph.merge')} (${selectedCommit ? (selectedCommit.parents || []).length : 0})`
-          : selectedNode && selectedNode.fork
-            ? t('graph.fork')
-            : ''
-        const parents = selectedCommit && Array.isArray(selectedCommit.parents) ? selectedCommit.parents : []
-        const refs = selectedCommit && Array.isArray(selectedCommit.refs) ? selectedCommit.refs : []
+        const shownCommit = detailCommit || selectedCommit
+        const operation =
+          selectedNode && selectedNode.merge
+            ? selectedNode.mergeTarget && selectedNode.mergeSource
+              ? `${t('graph.merge')}: ${selectedNode.mergeTarget} ← ${selectedNode.mergeSource}`
+              : `${t('graph.merge')} (${selectedNode ? (shownCommit ? (shownCommit.parents || []).length : 0) : 0})`
+            : selectedNode && selectedNode.fork
+              ? t('graph.fork')
+              : ''
+        const parents = shownCommit && Array.isArray(shownCommit.parents) ? shownCommit.parents : []
+        const refs = shownCommit && Array.isArray(shownCommit.refs) ? shownCommit.refs : []
+        const files = detail && Array.isArray(detail.files) ? detail.files : []
+        const additions = files.reduce((sum, file) => sum + file.additions, 0)
+        const deletions = files.reduce((sum, file) => sum + file.deletions, 0)
+        const workspace = byId[sessionId] && byId[sessionId].cwd ? byId[sessionId].cwd : repo.root
+        const authorName = detailCommit && detailCommit.author ? detailCommit.author.name : shownCommit ? shownCommit.author : ''
+        const authorEmail = detailCommit && detailCommit.author ? detailCommit.author.email : shownCommit ? shownCommit.email : ''
+        const authorDate = detailCommit && detailCommit.author ? detailCommit.author.date : shownCommit ? shownCommit.date : ''
 
         main = [
           notice !== null ? h('div', { className: 'gr-inline-notice', key: 'notice' }, notice) : null,
@@ -1490,7 +1722,7 @@ window.__ModuleLoader__.load({
                       node,
                       selected: commit.sha === selectedSha,
                       rowColor: node ? laneStroke(node.color) : undefined,
-                      onSelect: setSelectedSha,
+                      onSelect: selectCommit,
                     })
                   }),
                 ),
@@ -1558,19 +1790,19 @@ window.__ModuleLoader__.load({
               'aside',
               { className: 'gr-page-detail' },
               h('div', { className: 'gr-detail-head' }, t('page.detail')),
-              selectedCommit
+              shownCommit
                 ? [
-                    h('h2', { className: 'gr-detail-subject', key: 'subject' }, selectedCommit.subject || t('commit.noSubject')),
+                    h('h2', { className: 'gr-detail-subject', key: 'subject' }, shownCommit.subject || t('commit.noSubject')),
                     operation ? h('div', { className: 'gr-detail-op', key: 'op' }, operation) : null,
                     h(
                       'dl',
                       { className: 'gr-detail-grid', key: 'meta' },
                       h('dt', { className: 'gr-detail-label' }, t('page.sha')),
-                      h('dd', { className: 'gr-detail-value' }, h('code', null, selectedCommit.sha)),
+                      h('dd', { className: 'gr-detail-value' }, h('code', null, shownCommit.sha)),
                       h('dt', { className: 'gr-detail-label' }, t('page.author')),
-                      h('dd', { className: 'gr-detail-value' }, `${selectedCommit.author} <${selectedCommit.email}>`),
+                      h('dd', { className: 'gr-detail-value' }, `${authorName}${authorEmail ? ` <${authorEmail}>` : ''}`),
                       h('dt', { className: 'gr-detail-label' }, t('page.date')),
-                      h('dd', { className: 'gr-detail-value' }, formatFullDate(selectedCommit.date)),
+                      h('dd', { className: 'gr-detail-value' }, formatFullDate(authorDate)),
                       h('dt', { className: 'gr-detail-label' }, t('page.parents')),
                       h(
                         'dd',
@@ -1600,7 +1832,74 @@ window.__ModuleLoader__.load({
                           : '—',
                       ),
                     ),
-                    h('div', { className: 'gr-detail-note', key: 'note' }, t('page.diffLater')),
+                    detailCommit && detailCommit.body
+                      ? h(
+                          'div',
+                          { className: 'gr-detail-section', key: 'message' },
+                          h('div', { className: 'gr-detail-section-head' }, t('page.message')),
+                          h('pre', { className: 'gr-detail-body' }, detailCommit.body.replace(/\s+$/, '')),
+                          detailCommit.bodyTruncated
+                            ? h('div', { className: 'gr-detail-note' }, t('page.bodyTruncated'))
+                            : null,
+                        )
+                      : null,
+                    files.length > 0
+                      ? h(
+                          'div',
+                          { className: 'gr-detail-section', key: 'files' },
+                          h(
+                            'div',
+                            { className: 'gr-detail-section-head' },
+                            h('span', null, t('page.files')),
+                            h('span', { className: 'gr-detail-file-total' }, `${files.length} · +${additions} −${deletions}`),
+                          ),
+                          h(
+                            'div',
+                            { className: 'gr-file-list' },
+                            files.map((file) =>
+                              h(FileRow, {
+                                key: `${file.oldPath || ''}:${file.path}`,
+                                file,
+                                t,
+                                onOpen:
+                                  openFile && typeof openFile === 'function'
+                                    ? () =>
+                                        openFile(
+                                          fileAddressFor(
+                                            sessionId,
+                                            workspace,
+                                            repo.root,
+                                            file.path,
+                                          ),
+                                        )
+                                    : undefined,
+                              }),
+                            ),
+                          ),
+                          detail.filesTruncated
+                            ? h('div', { className: 'gr-detail-note' }, t('page.filesTruncated'))
+                            : null,
+                        )
+                      : null,
+                    detailState.status === 'loading'
+                      ? h('div', { className: 'gr-muted', key: 'loading' }, t('page.loadingDetail'))
+                      : null,
+                    detailState.error
+                      ? h(
+                          'div',
+                          { className: 'gr-error-text', key: 'detail-error' },
+                          errorText(t, detailState.error),
+                        )
+                      : null,
+                    detail
+                      ? h(DiffView, {
+                          key: 'diff',
+                          patch: detail.patch,
+                          truncated: detail.patchTruncated,
+                          unavailable: detail.patchUnavailable,
+                          t,
+                        })
+                      : null,
                   ]
                 : h('div', { className: 'gr-detail-empty' }, t('page.selectCommit')),
             ),
@@ -2004,10 +2303,11 @@ window.__ModuleLoader__.load({
   background: var(--dsw-alias-bg-layer-2);
 }
 .gr-branch-dot {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  border: 1.5px solid var(--dsw-alias-label-secondary);
+  border: 2px solid var(--dsw-alias-label-secondary);
+  box-sizing: border-box;
 }
 .gr-branch.is-current .gr-branch-dot {
   background: var(--dsw-alias-brand-primary);
@@ -2203,6 +2503,7 @@ window.__ModuleLoader__.load({
   -webkit-line-clamp: 2;
   overflow: hidden;
   font-size: 12px;
+  font-weight: 600;
   line-height: 1.35;
   max-height: 2.7em;
   overflow-wrap: anywhere;
@@ -2449,7 +2750,7 @@ window.__ModuleLoader__.load({
   padding-top: 4px;
 }
 .gr-page-detail {
-  width: 330px;
+  width: 380px;
   flex: none;
   overflow: auto;
   padding: 16px 18px;
@@ -2466,6 +2767,7 @@ window.__ModuleLoader__.load({
 .gr-detail-subject {
   margin: 0 0 12px;
   font-size: 15px;
+  font-weight: 600;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
@@ -2515,6 +2817,120 @@ window.__ModuleLoader__.load({
   line-height: 1.5;
   color: var(--dsw-alias-label-secondary);
 }
+.gr-detail-section {
+  margin-top: 16px;
+}
+.gr-detail-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+  letter-spacing: 0.02em;
+}
+.gr-detail-file-total {
+  font-weight: 400;
+  font-size: 10px;
+}
+.gr-detail-body {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 200px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.gr-file-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.gr-file-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+button.gr-file-row {
+  cursor: pointer;
+}
+button.gr-file-row:hover {
+  background: var(--dsw-alias-bg-layer-2);
+}
+.gr-file-row + .gr-file-row {
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+.gr-file-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+}
+.gr-file-stat {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.gr-diff-wrap {
+  margin-top: 16px;
+}
+.gr-diff {
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  padding: 8px 0;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.45;
+}
+.gr-diff-line {
+  display: block;
+  padding: 0 8px;
+  white-space: pre;
+  color: var(--dsw-alias-label-secondary);
+}
+.gr-diff-line.is-add {
+  color: var(--dsw-alias-state-success-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);
+}
+.gr-diff-line.is-del {
+  color: var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
+}
+.gr-diff-line.is-hunk {
+  color: var(--dsw-alias-brand-primary);
+  opacity: 0.9;
+}
+.gr-diff-line.is-file,
+.gr-diff-line.is-meta {
+  color: var(--dsw-alias-label-secondary);
+  opacity: 0.75;
+}
 @media (max-width: 900px) {
   .gr-page-body {
     flex-direction: column;
@@ -2536,6 +2952,12 @@ window.__ModuleLoader__.load({
       const t = ctx.locale.bind(NS)
       const sessions = ctx.get('sessions')
       const layout = ctx.get('layout')
+      const selection = createSelectionStore()
+      const sidebarRight = ctx.get('sidebarRight')
+      const openFile =
+        sidebarRight && typeof sidebarRight.openResource === 'function'
+          ? (address) => sidebarRight.openResource(address)
+          : undefined
 
       ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'gitrail: dictionaries')
 
@@ -2569,6 +2991,7 @@ window.__ModuleLoader__.load({
                 locale: NS,
                 inject: () => ({
                   openPanel: typeof layout?.selectPanel === 'function' ? () => layout.selectPanel(PANEL_ID) : undefined,
+                  selection,
                 }),
               },
               GitrailBody,
@@ -2585,7 +3008,7 @@ window.__ModuleLoader__.load({
                 name: 'main',
                 key: PANEL_ID,
                 locale: NS,
-                inject: () => ({ sessions }),
+                inject: () => ({ sessions, selection, openFile }),
               },
               GitrailPage,
             ),
@@ -2612,7 +3035,12 @@ window.__ModuleLoader__.load({
     }
 
     const plugin = { inject, apply }
-    if (globalThis.__GITRAIL_TEST__) plugin.__layoutGraph = layoutGraph
+    if (globalThis.__GITRAIL_TEST__) {
+      plugin.__layoutGraph = layoutGraph
+      plugin.__createSelectionStore = createSelectionStore
+      plugin.__branchColorIndex = branchColorIndex
+      plugin.__fileAddressFor = fileAddressFor
+    }
     return plugin
   },
 })

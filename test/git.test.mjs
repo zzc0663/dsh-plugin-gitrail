@@ -4,7 +4,15 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import test from 'node:test'
 
-import { GitError, parseLog, parseRefs, parseStatus, readRepoState } from '../lib/git.js'
+import {
+  GitError,
+  parseLog,
+  parseNumstat,
+  parseRefs,
+  parseStatus,
+  readCommitDetail,
+  readRepoState,
+} from '../lib/git.js'
 import { commit, git, makePlainDir, makeRepo } from '../test-support/git.mjs'
 
 test('parseStatus reads branch, upstream, track and change count', () => {
@@ -214,4 +222,103 @@ test('readRepoState rejects a missing workspace directory', async () => {
     assert.equal(error.code, 'repo/no-cwd')
     return true
   })
+})
+
+test('parseNumstat handles text, binary and rename rows', () => {
+  const files = parseNumstat(
+    ['12\t3\tsrc/a.ts', '-\t-\tassets/logo.png', '0\t0\told.txt => new.txt', '1\t0\tdir/{a => b}.ts'].join('\n'),
+  )
+
+  assert.deepEqual(files[0], {
+    path: 'src/a.ts',
+    oldPath: null,
+    additions: 12,
+    deletions: 3,
+    binary: false,
+  })
+  assert.equal(files[1].binary, true)
+  assert.equal(files[2].oldPath, 'old.txt')
+  assert.equal(files[2].path, 'new.txt')
+  assert.equal(files[3].oldPath, 'dir/a.ts')
+  assert.equal(files[3].path, 'dir/b.ts')
+})
+
+test('readCommitDetail returns metadata, message, files and a patch', async (t) => {
+  const dir = await makeRepo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeFile(join(dir, 'a.txt'), 'hello\n', 'utf8')
+  git(['add', 'a.txt'], dir)
+  git(['commit', '-m', 'feat: add a', '-m', 'body line one\nbody line two'], dir)
+  const sha = git(['rev-parse', 'HEAD'], dir)
+
+  const detail = await readCommitDetail(dir, sha)
+
+  assert.equal(detail.commit.sha, sha)
+  assert.equal(detail.commit.subject, 'feat: add a')
+  assert.match(detail.commit.body, /body line one/)
+  assert.equal(detail.commit.author.name, 'Gitrail Test')
+  assert.equal(detail.commit.committer.name, 'Gitrail Test')
+  assert.equal(detail.files.length, 1)
+  assert.equal(detail.files[0].path, 'a.txt')
+  assert.equal(detail.files[0].additions, 1)
+  assert.equal(detail.files[0].binary, false)
+  assert.match(detail.patch, /diff --git a\/a.txt b\/a.txt/)
+  assert.match(detail.patch, /\+hello/)
+})
+
+test('readCommitDetail reports renames and binary files', async (t) => {
+  const dir = await makeRepo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await commit(dir, 'old.txt', 'hello\n', 'first')
+  git(['mv', 'old.txt', 'new.txt'], dir)
+  await writeFile(join(dir, 'logo.bin'), Buffer.from([0, 0, 1, 2]))
+  git(['add', 'new.txt', 'logo.bin'], dir)
+  git(['commit', '-m', 'rename and binary'], dir)
+  const sha = git(['rev-parse', 'HEAD'], dir)
+
+  const detail = await readCommitDetail(dir, sha)
+
+  const renamed = detail.files.find((file) => file.path === 'new.txt')
+  assert.ok(renamed)
+  assert.equal(renamed.oldPath, 'old.txt')
+  const binary = detail.files.find((file) => file.path === 'logo.bin')
+  assert.ok(binary)
+  assert.equal(binary.binary, true)
+  assert.equal(binary.additions, 0)
+  assert.equal(binary.deletions, 0)
+})
+
+test('readCommitDetail rejects malformed and missing commits', async (t) => {
+  const dir = await makeRepo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await commit(dir, 'a.txt', 'a\n', 'first')
+
+  await assert.rejects(readCommitDetail(dir, '--all'), (error) => {
+    assert.ok(error instanceof GitError)
+    assert.equal(error.code, 'request/bad-sha')
+    return true
+  })
+
+  await assert.rejects(readCommitDetail(dir, '0123456789abcdef0123456789abcdef01234567'), (error) => {
+    assert.ok(error instanceof GitError)
+    assert.equal(error.code, 'git/commit-not-found')
+    return true
+  })
+})
+
+test('readCommitDetail shows the changes a merge brought into its first parent', async (t) => {
+  const dir = await makeRepo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await commit(dir, 'base.txt', 'base\n', 'base')
+  git(['switch', '-c', 'feature'], dir)
+  await commit(dir, 'feature.txt', 'feature\n', 'feature work')
+  git(['switch', 'main'], dir)
+  git(['merge', '--no-ff', 'feature', '-m', 'merge feature'], dir)
+  const sha = git(['rev-parse', 'HEAD'], dir)
+
+  const detail = await readCommitDetail(dir, sha)
+
+  assert.equal(detail.commit.subject, 'merge feature')
+  assert.ok(detail.files.some((file) => file.path === 'feature.txt'))
+  assert.match(detail.patch, /\+feature/)
 })

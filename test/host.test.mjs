@@ -142,6 +142,35 @@ test('GET /repo scopes commits to one branch and validates the ref', async (t) =
   assert.equal(allIgnoresRef.body.repo.selection.scope, 'all')
 })
 
+test('GET /commit returns message, files and patch validation', async (t) => {
+  const dir = await makeRepo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await commit(dir, 'a.txt', 'hello\n', 'feat: first')
+  const sha = git(['rev-parse', 'HEAD'], dir)
+  const route = harness({ live: { header: { cwd: dir } } })
+
+  const ok = await request(route, {
+    url: `/dsh-plugin-gitrail/commit?session=${SESSION}&sha=${sha}`,
+  })
+  assert.equal(ok.status, 200)
+  assert.equal(ok.body.ok, true)
+  assert.equal(ok.body.commit.subject, 'feat: first')
+  assert.equal(ok.body.files[0].path, 'a.txt')
+  assert.match(ok.body.patch, /\+hello/)
+
+  const badSha = await request(route, {
+    url: `/dsh-plugin-gitrail/commit?session=${SESSION}&sha=--all`,
+  })
+  assert.equal(badSha.status, 400)
+  assert.equal(badSha.body.code, 'request/bad-sha')
+
+  const missing = await request(route, {
+    url: `/dsh-plugin-gitrail/commit?session=${SESSION}&sha=0123456789abcdef0123456789abcdef01234567`,
+  })
+  assert.equal(missing.status, 404)
+  assert.equal(missing.body.code, 'git/commit-not-found')
+})
+
 test('GET /repo falls back to the session index for a non-live session', async (t) => {
   const dir = await makeRepo()
   t.after(() => rm(dir, { recursive: true, force: true }))

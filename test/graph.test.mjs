@@ -210,3 +210,36 @@ test('a branch tip hands the lane over to its own branch color', () => {
   assert.equal(graph.nodes[1].tip.name, 'main')
   assert.notEqual(graph.nodes[0].color, graph.nodes[1].color)
 })
+
+test('local and remote branches share a branch color', () => {
+  const branchColorIndex = plugin.__branchColorIndex
+  assert.equal(branchColorIndex('develop', false), branchColorIndex('origin/develop', true))
+  assert.notEqual(branchColorIndex('develop', false), branchColorIndex('main', false))
+})
+
+test('the selection store emits only on real changes', () => {
+  const store = plugin.__createSelectionStore()
+  let changes = 0
+  const off = store.subscribe(() => {
+    changes += 1
+  })
+
+  store.select('s1', 'abc')
+  assert.deepEqual(store.getSnapshot(), { sessionId: 's1', sha: 'abc' })
+  store.select('s1', 'abc')
+  assert.equal(changes, 1)
+  store.clear()
+  assert.equal(store.getSnapshot(), null)
+  assert.equal(changes, 2)
+  off()
+  store.select('s2', 'def')
+  assert.equal(changes, 2)
+})
+
+test('file addresses stay relative to the session workspace', () => {
+  const address = plugin.__fileAddressFor('session-1', 'D:/work/demo', 'D:/work/demo', 'src/a b.ts')
+  assert.equal(address, 'dsh-resource://file/session/session-1/src/a%20b.ts')
+
+  const nested = plugin.__fileAddressFor('session-1', 'D:/work', 'D:/work/demo', 'src/a.ts')
+  assert.equal(nested, 'dsh-resource://file/session/session-1/demo/src/a.ts')
+})

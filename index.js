@@ -1,16 +1,19 @@
 /**
  * dsh-plugin-gitrail — Host half.
  *
- * Serves one read-only endpoint, `GET /dsh-plugin-gitrail/repo?session=<id>`,
- * on the existing loopback Web server. The repository is resolved from the
- * Session's workspace directory; the browser never supplies a filesystem path.
+ * Serves two read-only endpoints on the existing loopback Web server:
+ * `GET /dsh-plugin-gitrail/repo?session=<id>` and
+ * `GET /dsh-plugin-gitrail/commit?session=<id>&sha=<sha>`.
+ * The repository is resolved from the Session's workspace directory; the
+ * browser never supplies a filesystem path.
  *
- * The Client half (`client.js`) registers the right-sidebar tab that reads it.
+ * The Client half (`client.js`) registers the right-sidebar tab and the
+ * full-width graph page that read them.
  *
  * @module dsh-plugin-gitrail
  */
 
-import { GitError, readRepoState } from './lib/git.js'
+import { GitError, readCommitDetail, readRepoState } from './lib/git.js'
 
 export const name = 'dsh-plugin-gitrail'
 
@@ -19,6 +22,7 @@ export const inject = ['webServer']
 
 const BASE = '/dsh-plugin-gitrail'
 const SESSION_ID = /^[A-Za-z0-9._:-]{1,200}$/
+const SHA = /^[0-9a-f]{7,40}$/
 
 /**
  * @param {import('node:http').ServerResponse} res
@@ -124,9 +128,12 @@ function statusOfGitError(error) {
       return { status: 504, code: 'git/timeout' }
     case 'request/bad-scope':
     case 'request/bad-ref':
+    case 'request/bad-sha':
       return { status: 400, code: error.code }
     case 'git/unknown-ref':
       return { status: 409, code: 'git/unknown-ref' }
+    case 'git/commit-not-found':
+      return { status: 404, code: 'git/commit-not-found' }
     default:
       return { status: 500, code: 'git/failed' }
   }
@@ -161,7 +168,9 @@ export function apply(ctx) {
             }
 
             const url = new URL(req.url ?? '/', 'http://localhost')
-            if (url.pathname !== `${BASE}/repo`) {
+            const isRepo = url.pathname === `${BASE}/repo`
+            const isCommit = url.pathname === `${BASE}/commit`
+            if (!isRepo && !isCommit) {
               sendJson(res, 404, { ok: false, code: 'http/not-found', message: 'unknown route' })
               return
             }
@@ -179,6 +188,17 @@ export function apply(ctx) {
             }
             if (session.cwd === undefined) {
               sendJson(res, 409, { ok: false, code: 'session/no-cwd', message: 'session has no workspace directory' })
+              return
+            }
+
+            if (isCommit) {
+              const sha = (url.searchParams.get('sha') ?? '').trim().toLowerCase()
+              if (!SHA.test(sha)) {
+                sendJson(res, 400, { ok: false, code: 'request/bad-sha', message: 'invalid commit SHA' })
+                return
+              }
+              const detail = await readCommitDetail(session.cwd, sha)
+              sendJson(res, 200, { ok: true, ...detail })
               return
             }
 

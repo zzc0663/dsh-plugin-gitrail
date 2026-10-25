@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 semantic versioning.
 
+## [0.5.0] — 2026-10-25
+
+### Added
+
+- Branch-list color rings: every local/remote branch shows its lane color; the
+  current branch is filled, other branches empty, remote branches dashed.
+- Commit subjects and detail titles are semibold; metadata stays secondary.
+- Shared commit selection: clicking a commit in the sidebar opens the full graph
+  panel with that commit selected; page selection updates the same store.
+- `GET /dsh-plugin-gitrail/commit?session=&sha=` with full message, author and
+  committer, parents, refs, `--numstat` file stats (binary/rename) and a bounded
+  unified diff; first-parent diff for merges.
+- Detail panel shows the message body, file list with `+/-`, clickable files
+  (when the sidebar resource opener is available), and a line-colored diff.
+- Safety caps: 16 KiB message, 200 files, 512 KiB patch; `truncated` flags.
+- Four new client tests (branch colors, selection store, file address) and
+  commit-detail tests (normal/rename/binary/merge/invalid).
+
 ## [0.4.0] — 2026-10-25
 
 ### Added

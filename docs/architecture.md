@@ -128,9 +128,11 @@ sidebar.panellist「Gitrail 图谱」
 | 400 | `request/bad-session` | session id 缺失或格式非法 |
 | 400 | `request/bad-scope` | `scope` 不是 `all` / `branch` |
 | 400 | `request/bad-ref` | ref 格式非法（以 `-` 开头、含空白/控制字符、超长） |
+| 400 | `request/bad-sha` | commit SHA 不是 7–40 位十六进制 |
 | 403 | `http/forbidden` | `Host` 不是 loopback |
 | 404 | `session/not-found` | 会话不存在（live 与索引都查不到） |
 | 404 | `http/not-found` | 未知子路径 |
+| 404 | `git/commit-not-found` | SHA 合法但仓库里没有该提交 |
 | 405 | `http/method-not-allowed` | 非 GET |
 | 409 | `session/no-cwd` | 会话存在但没有工作目录 |
 | 409 | `git/not-a-repo` | 工作目录不是 git 仓库 |
@@ -138,6 +140,33 @@ sidebar.panellist「Gitrail 图谱」
 | 500 | `git/failed` / `server/failed` | git 或宿主内部失败 |
 | 503 | `git/unavailable` | 找不到 `git` 可执行文件 |
 | 504 | `git/timeout` | 10s 超时 |
+
+### `GET /dsh-plugin-gitrail/commit?session=<id>&sha=<sha>`
+
+提交详情：完整 message、作者/提交者、parents、refs、`--numstat` 文件列表，以及有上限的 unified diff（merge 用 `-m --first-parent`）。
+
+```json
+{
+  "ok": true,
+  "commit": {
+    "sha": "…",
+    "parents": ["…"],
+    "author": { "name": "…", "email": "…", "date": "…" },
+    "committer": { "name": "…", "email": "…", "date": "…" },
+    "subject": "…",
+    "refs": ["HEAD -> develop"],
+    "body": "…",
+    "bodyTruncated": false
+  },
+  "files": [{ "path": "src/a.ts", "oldPath": null, "additions": 12, "deletions": 3, "binary": false }],
+  "filesTruncated": false,
+  "patch": "diff --git …",
+  "patchTruncated": false,
+  "patchUnavailable": false
+}
+```
+
+上限：message 16 KiB、文件 200 个、patch 512 KiB。二进制文件只给 stat；rename 带 `oldPath`。客户端详情面板展示 message、文件 `+/-` 与按行着色的 diff；文件行在 `sidebarRight.openResource` 可用时打开 `dsh-resource://file/...` 预览。
 
 ## 4. Session → 工作区
 
@@ -151,10 +180,10 @@ sidebar.panellist「Gitrail 图谱」
 
 ## 5. 只读与安全
 
-- 命令白名单由代码固定：`rev-parse`、`status`、`for-each-ref`、`log`；没有写命令。
+- 命令白名单由代码固定：`rev-parse`、`status`、`for-each-ref`、`log`、`show`、`cat-file`；没有写命令。
 - `execFile('git', ['-C', cwd, ...args])`，不经 shell；参数不允许来自请求。
 - 环境：`GIT_OPTIONAL_LOCKS=0`、`GIT_TERMINAL_PROMPT=0`、`GIT_PAGER=cat`、`LC_ALL=C`；不设置凭据。
-- 输出：10s 超时、4 MiB 上限、80 条提交、每类 200 个分支。
+- 输出：10s 超时、12 MiB 上限、80 条提交、每类 200 个分支；提交详情 message 16 KiB、文件 200 个、patch 512 KiB。
 - `Host` 头校验阻止 LAN / 代理访问；响应 `Cache-Control: no-store`、`nosniff`。
 - 不记录仓库内容；日志只记错误类别与简短原因。
 
@@ -168,6 +197,7 @@ sidebar.panellist「Gitrail 图谱」
 - 提交范围默认「所有分支」；下拉是 `role="listbox"`，支持方向键 / Home / End / Enter / Escape，分支行同时可点选（`role="button"` + `aria-current`）。
 - 客户端只发送 `scope` / `ref`，不发送路径；Host 用 `for-each-ref` 结果做白名单，再拼 `git log` 参数。
 - **提交图**：`layoutGraph()` 是纯函数，输入 `commits[].parents` + `branches`，输出每行 lane/边/节点；渲染为一个绝对定位 SVG，提交行固定 64px，subject 最多两行。lane 颜色按分支名稳定哈希到 8 色板，合并来源边继承来源色；远程 lane 虚线。颜色是分类数据可视化的唯一例外，其余 UI 仍只用 `--dsw-alias-*`。
+- **共享选中**：`apply()` 创建插件级 selection store（`{sessionId, sha}`），右侧栏与全宽页都通过 slot `inject` 读取；侧栏点击先 `selection.select()` 再 `layout.selectPanel('gitrail-graph')`。全宽页详情通过 `/commit` 拉取 message / 文件 / diff。
 
 ## 7. 文件地图
 
