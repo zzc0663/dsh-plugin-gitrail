@@ -33,7 +33,7 @@ test('parseRefs keeps local and remote branches and skips remote HEAD', () => {
   const text = [
     ['refs/heads/main', 'main', 'abc1234', '*', 'origin/main', '2026-10-20T12:00:00+08:00', 'init'].join(nul),
     ['refs/heads/feature', 'feature', 'def5678', ' ', '', '2026-10-19T12:00:00+08:00', 'feature'].join(nul),
-    ['refs/remotes/origin/HEAD', 'origin/HEAD', 'abc1234', ' ', '', '2026-10-20T12:00:00+08:00', 'init'].join(nul),
+    ['refs/remotes/origin/HEAD', 'origin', 'abc1234', ' ', '', '2026-10-20T12:00:00+08:00', 'init'].join(nul),
     ['refs/remotes/origin/main', 'origin/main', 'abc1234', ' ', '', '2026-10-20T12:00:00+08:00', 'init'].join(nul),
     '',
   ].join('\n')
@@ -53,14 +53,14 @@ test('parseRefs keeps local and remote branches and skips remote HEAD', () => {
 test('parseLog splits commits, parents and refs', () => {
   const nul = '\u0000'
   const text = [
-    ['aaa', 'aaa1111', 'bbb', 'Ada', 'ada@example.invalid', '2026-10-20T12:00:00+08:00', 'second', 'HEAD -> main, tag: v1'].join(nul),
+    ['aaa', 'aaa1111', 'bbb', 'Ada', 'ada@example.invalid', '2026-10-20T12:00:00+08:00', 'second', 'HEAD -> main, origin/HEAD, origin/main, tag: v1'].join(nul),
     '',
   ].join('\n')
 
   const commits = parseLog(text)
   assert.equal(commits.length, 1)
   assert.deepEqual(commits[0].parents, ['bbb'])
-  assert.deepEqual(commits[0].refs, ['HEAD -> main', 'tag: v1'])
+  assert.deepEqual(commits[0].refs, ['HEAD -> main', 'origin/main', 'tag: v1'])
   assert.equal(commits[0].subject, 'second')
 })
 

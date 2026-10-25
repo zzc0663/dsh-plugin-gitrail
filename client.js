@@ -278,7 +278,7 @@ window.__ModuleLoader__.load({
 
     function CommitRow(props) {
       const commit = props.commit
-      const refs = commit.refs.slice(0, 3)
+      const refs = commit.refs.slice(0, 4)
       const extra = commit.refs.length - refs.length
 
       return h(
@@ -749,14 +749,30 @@ window.__ModuleLoader__.load({
 }
 .gr-remotes > summary {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
   padding: 6px 8px;
   font-size: 11px;
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
   list-style: none;
+}
+.gr-remotes > summary .gr-count {
+  margin-left: auto;
+}
+.gr-remotes > summary::before {
+  content: "›";
+  font-size: 12px;
+  line-height: 1;
+  color: var(--dsw-alias-label-secondary);
+  transition: transform 0.15s ease;
+}
+.gr-remotes[open] > summary::before {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .gr-remotes > summary::before { transition: none; }
 }
 .gr-remotes > summary::-webkit-details-marker {
   display: none;
@@ -788,7 +804,8 @@ window.__ModuleLoader__.load({
   top: -5px;
   bottom: -5px;
   width: 2px;
-  background: var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-brand-primary);
+  opacity: 0.45;
 }
 .gr-commit:first-child .gr-rail::before {
   top: 11px;
@@ -823,6 +840,7 @@ window.__ModuleLoader__.load({
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   font-size: 10px;
   color: var(--dsw-alias-label-secondary);
 }
@@ -836,16 +854,18 @@ window.__ModuleLoader__.load({
   display: inline-flex;
   flex-wrap: wrap;
   gap: 4px;
+  min-width: 0;
+  max-width: 100%;
 }
 .gr-ref {
   max-width: 11em;
-  padding: 0 5px;
+  padding: 0 6px;
   border-radius: 999px;
   border: 1px solid var(--dsw-alias-border-l1);
   background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-secondary);
-  font-size: 9px;
-  line-height: 15px;
+  font-size: 10px;
+  line-height: 16px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

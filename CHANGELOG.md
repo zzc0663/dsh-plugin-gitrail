@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 semantic versioning.
 
+## [Unreleased]
+
+### Fixed
+
+- Symbolic remote HEAD (`origin/HEAD`, whose short name is just `origin`) is no
+  longer listed as a remote branch, and the `origin/HEAD` decoration no longer
+  appears in commit refs.
+- Commit ref chips stay inside the right sidebar; up to four refs render, the
+  commit rail is easier to see, and the remote-branch row has a clear
+  disclosure control.
+
 ## [0.1.0] — 2026-10-21
 
 ### Added
